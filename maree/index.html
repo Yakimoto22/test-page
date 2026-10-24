@@ -530,10 +530,10 @@ const derniereOuverte = () => { let l = 0; for (let i = 0; i < 50; i++) if (unlo
 
 // ---- objets à collectionner
 const RARETES = [
-  { nom: 'Commun', col: '#b9d3e6', prix: 300, doublon: 15 },
-  { nom: 'Rare', col: '#4fb3ff', prix: 700, doublon: 40 },
-  { nom: 'Épique', col: '#b89bff', prix: 1600, doublon: 100 },
-  { nom: 'Légendaire', col: '#ffcf4a', prix: 4000, doublon: 300 },
+  { nom: 'Commun', col: '#b9d3e6', prix: 3000, doublon: 100 },
+  { nom: 'Rare', col: '#4fb3ff', prix: 8000, doublon: 300 },
+  { nom: 'Épique', col: '#b89bff', prix: 18000, doublon: 900 },
+  { nom: 'Légendaire', col: '#ffcf4a', prix: 45000, doublon: 3000 },
 ];
 const CATS = { coque: 'Coques', chapeau: 'Chapeaux', drapeau: 'Fanions', sillage: 'Sillages', skin: 'Bateaux' };
 const ITEMS = [
@@ -563,13 +563,14 @@ const ITEMS = [
   { id: 'skin-drakkar', cat: 'skin', nom: 'Drakkar', rar: 3 },
 ];
 const itemById = (id) => ITEMS.find((i) => i.id === id);
-// Boîtes : prix pour 1 à 5 minutes de jeu ; plus la boîte est grande, plus le butin est rare.
+// Boîtes : un très bon joueur gagne environ 120 pièces par minute (mesuré : 70 à 180 en jeu parfait).
+// Petite boîte : au moins 5 minutes de jeu ; grande boîte : au moins 1 heure.
 const BOITES = [
-  { id: 'petite', nom: 'Petite boîte', prix: 60, chances: [70, 25, 4.5, 0.5], col: ['#9ad1ff', '#3f8fd0'] },
-  { id: 'moyenne', nom: 'Boîte moyenne', prix: 150, chances: [40, 42, 15, 3], col: ['#c9a6ff', '#7d55d6'] },
-  { id: 'grande', nom: 'Grande boîte', prix: 280, chances: [10, 45, 35, 10], col: ['#ffe07a', '#e0a01e'] },
+  { id: 'petite', nom: 'Petite boîte', prix: 600, chances: [70, 25, 4.5, 0.5], col: ['#9ad1ff', '#3f8fd0'] },
+  { id: 'moyenne', nom: 'Boîte moyenne', prix: 2400, chances: [40, 42, 15, 3], col: ['#c9a6ff', '#7d55d6'] },
+  { id: 'grande', nom: 'Grande boîte', prix: 7200, chances: [10, 45, 35, 10], col: ['#ffe07a', '#e0a01e'] },
 ];
-const PRIX_LAGON = 2500;
+const PRIX_LAGON = 15000;
 
 // =====================================================================  son
 // Tout est synthétisé : ambiance d'eau, musique générative par monde, effets avec réverbération.
@@ -1747,7 +1748,7 @@ function lookAvec(it) {
   if (it.cat === 'skin') l.skin = it.id; else { l[it.cat] = it.id; if (it.cat === 'coque') l.skin = null; }
   return l;
 }
-const pct = (v) => String(v).replace('.', ',') + ' %';
+const pct = (v) => String(v).replace('.', ',') + '\u00a0%';
 function renderBoutique() {
   $('bout-pieces').textContent = save.pieces;
   for (const b of $('onglets').children) b.classList.toggle('actif', b.dataset.tab === boutTab);
@@ -1755,14 +1756,14 @@ function renderBoutique() {
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   if (boutTab === 'boites') {
     C.append(el('p', 'note', 'Chaque boîte contient un objet. Un objet déjà possédé est remboursé en pièces.'));
-    const minutes = ['≈ 1 min de jeu', '≈ 3 min de jeu', '≈ 5 min de jeu'];
+    const minutes = ['Au moins 5 min de jeu', 'Environ 20 min de jeu', 'Au moins 1 h de jeu'];
     BOITES.forEach((b, i) => {
       const card = el('div', 'boite-carte');
       const bx = el('div', 'boite', '<div class="corps"></div><div class="ruban"></div><div class="couvercle"></div><div class="noeud"></div>');
       bx.style.setProperty('--b1', b.col[0]); bx.style.setProperty('--b2', b.col[1]);
       const info = el('div');
       info.append(el('h3', null, b.nom));
-      info.append(el('p', 'chances', RARETES.map((r, k) => `<b style="color:${r.col}">${r.nom}</b> ${pct(b.chances[k])}`).join(' · ') + `<br>${minutes[i]}`));
+      info.append(el('p', 'chances', RARETES.map((r, k) => `<span style="white-space:nowrap"><b style="color:${r.col}">${r.nom}</b> ${pct(b.chances[k])}</span>`).join(' · ') + `<br>${minutes[i]}`));
       const btn = el('button', 'mini', `Ouvrir · ${b.prix}`); btn.disabled = save.pieces < b.prix;
       btn.onclick = () => ouvrirBoite(b);
       info.append(btn); card.append(bx, info); C.append(card);
