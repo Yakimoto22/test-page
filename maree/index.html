@@ -1,0 +1,1466 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0e2a44">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!--WRAP-END-->
+<title>Marée</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@600;800&display=swap">
+<style>
+/* Une scène plein écran (canvas) pour le jeu, la carte et le lac ; les écrans sont des calques HTML.
+   Look unique, lumineux et marin : pas de thème sombre séparé. */
+:root {
+  --abysse: #0e2a44;    /* panneaux, texte foncé */
+  --abysse-2: #17405f;
+  --lagon: #2a8fc9;
+  --ecume: #f2fbff;     /* texte clair */
+  --brume: #b9d3e6;     /* texte secondaire */
+  --corail: #ff7a59;    /* accent principal */
+  --corail-fonce: #d9532f;
+  --or: #ffcf4a;
+  --f-titre: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --f-texte: "Nunito", "Trebuchet MS", system-ui, sans-serif;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--abysse); }
+body {
+  color: var(--ecume); font: 600 16px/1.35 var(--f-texte);
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
+}
+#app { position: relative; height: 100%; overflow: hidden; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button { font: inherit; }
+.rond {
+  width: 44px; height: 44px; border-radius: 50%; border: 0; flex: none; cursor: pointer;
+  background: rgba(14,42,68,.72); color: var(--ecume); font: 800 19px/1 var(--f-titre);
+  display: grid; place-items: center;
+}
+.rond:focus-visible, .btn:focus-visible { outline: 3px solid var(--or); outline-offset: 2px; }
+
+/* ---- HUD de partie */
+#hud {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px;
+  padding-top: 10px; padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+#hud > * { pointer-events: auto; }
+#hud-centre { flex: 1; min-width: 0; text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.35); pointer-events: none !important; }
+#hud-nom { display: block; font: 800 19px/1.1 var(--f-titre); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud-sub { font-size: 12px; opacity: .92; font-variant-numeric: tabular-nums; }
+#hud-droite { display: grid; justify-items: end; gap: 3px; pointer-events: none !important; }
+#coeurs { font-size: 18px; letter-spacing: 2px; color: #ff5d73; text-shadow: 0 1px 2px rgba(0,0,0,.4); line-height: 1; }
+#coeurs i { font-style: normal; color: rgba(255,255,255,.35); }
+#perles-hud { background: rgba(14,42,68,.6); border-radius: 999px; padding: 2px 10px 2px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+#perles-hud b { color: var(--or); }
+#progres { position: absolute; left: 0; right: 0; top: 0; height: 4px; background: rgba(255,255,255,.18); pointer-events: none; }
+#progres i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--or), var(--corail)); }
+
+/* ---- Série */
+#serie {
+  position: absolute; left: 50%; top: 62px; transform: translateX(-50%); pointer-events: none;
+  display: grid; justify-items: center; gap: 2px; min-width: 124px;
+  background: rgba(14,42,68,.62); border-radius: 18px; padding: 5px 16px 7px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; transition: box-shadow .3s; --ton: var(--ecume);
+}
+#serie .lbl { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--brume); }
+#serie b { font: 800 32px/1 var(--f-titre); color: var(--ton); transition: color .3s; }
+#serie .jauge { width: 100%; height: 5px; border-radius: 3px; background: rgba(255,255,255,.16); overflow: hidden; }
+#serie .jauge i { display: block; height: 100%; width: 0; background: var(--ton); transition: width .25s ease-out; }
+#serie .info { font-size: 11px; color: var(--brume); }
+#serie .mult { position: absolute; right: -14px; top: -8px; background: var(--ton); color: var(--abysse); font: 800 14px/1 var(--f-titre); padding: 4px 7px; border-radius: 999px; transform: rotate(8deg); }
+#serie.t1 { --ton: #ffe07a; }
+#serie.t2 { --ton: #ffa94d; box-shadow: 0 0 18px rgba(255,169,77,.5); }
+#serie.t3 { --ton: #ff6b8b; box-shadow: 0 0 26px rgba(255,107,139,.6); }
+#serie.t4 { --ton: #b89bff; box-shadow: 0 0 34px rgba(184,155,255,.8); animation: lueur 1.1s ease-in-out infinite; }
+#serie.zero b { color: var(--brume); }
+#serie.pop b { animation: pop .3s ease-out; }
+@keyframes pop { 40% { transform: scale(1.4); } }
+@keyframes lueur { 50% { box-shadow: 0 0 50px rgba(184,155,255,1); } }
+#serie-perdue { position: absolute; left: 50%; top: 150px; transform: translateX(-50%); pointer-events: none; font: 800 22px/1 var(--f-titre); color: #ff9aac; text-shadow: 0 2px 6px rgba(0,0,0,.6); animation: perdue 1.4s ease-out forwards; white-space: nowrap; }
+@keyframes perdue { 0% { opacity: 1; } 10%, 30% { transform: translateX(-46%); } 20%, 40% { transform: translateX(-54%); } 100% { opacity: 0; transform: translate(-50%, 18px); } }
+#flash { position: absolute; inset: 0; pointer-events: none; animation: flash .7s ease-out forwards; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+#banniere { position: absolute; left: 0; right: 0; top: 26%; text-align: center; pointer-events: none; animation: banniere 2.6s ease-in-out forwards; text-shadow: 0 2px 10px rgba(5,20,35,.7); }
+#banniere > * { width: fit-content; margin-inline: auto; }
+#banniere small { display: block; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; }
+#banniere b { display: block; font: 800 clamp(28px, 9vw, 46px)/1.05 var(--f-titre); color: var(--or); background: rgba(14,42,68,.55); border-radius: 16px; padding: 4px 18px 8px; max-width: 92vw; text-wrap: balance; }
+@keyframes banniere { 0% { opacity: 0; transform: translateY(10px) scale(.9); } 12%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+#hint { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; pointer-events: none; text-wrap: balance;
+  padding: 0 max(18px, env(safe-area-inset-right, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px)); font-size: 16px; }
+#hint .go { display: block; margin-top: 8px; color: var(--or); animation: pouls 1.4s ease-in-out infinite; }
+@keyframes pouls { 50% { opacity: .45; } }
+
+/* ---- Écrans */
+.ecran {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center;
+  padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(8,26,44,.55);
+}
+.ecran.clair { background: linear-gradient(to bottom, rgba(8,26,44,0) 25%, rgba(8,26,44,.8) 80%); justify-content: flex-end; padding-block: 40px; }
+.panneau { background: var(--abysse); border-radius: 24px; padding: 24px 20px; width: min(100%, 360px); display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 10px 0 rgba(0,0,0,.25); }
+h1, h2 { margin: 0; font-family: var(--f-titre); font-weight: 800; text-wrap: balance; }
+h1 { font-size: clamp(76px, 25vw, 132px); line-height: .9; color: var(--ecume); text-shadow: 0 5px 0 var(--lagon), 0 10px 0 var(--abysse); }
+h2 { font-size: 36px; line-height: 1; color: var(--or); }
+.sous { margin: 0; max-width: 30ch; text-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.petit { margin: 0; color: var(--brume); font-size: 13px; }
+.btn { border: 0; border-radius: 999px; cursor: pointer; font: 800 20px/1 var(--f-titre); padding: 15px 30px 13px; min-width: 210px; background: var(--corail); color: #fff; box-shadow: 0 5px 0 var(--corail-fonce); }
+.btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--corail-fonce); }
+.btn.second { background: var(--abysse-2); box-shadow: 0 5px 0 #08192a; font-size: 17px; padding: 12px 22px 10px; }
+.btn.or { background: var(--or); color: var(--abysse); box-shadow: 0 5px 0 #c99a1d; }
+.btn.enorme { font-size: 25px; padding: 19px 36px 16px; }
+.rangee { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.etoiles { font-size: 44px; letter-spacing: 6px; color: var(--or); line-height: 1; }
+.etoiles i { font-style: normal; color: #2b4a66; }
+.stats { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; color: var(--brume); }
+.stats b { color: var(--ecume); }
+.score { margin: 0; font: 800 70px/1 var(--f-titre); font-variant-numeric: tabular-nums; text-shadow: 0 4px 0 var(--abysse); }
+
+/* ---- Carte */
+#carte-tete {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px;
+  padding: 10px max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to bottom, rgba(8,26,44,.75), rgba(8,26,44,0)); pointer-events: none;
+}
+#carte-tete > * { pointer-events: auto; }
+#carte-tete h2 { flex: 1; font-size: 26px; text-align: left; color: var(--ecume); text-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.jeton { background: rgba(14,42,68,.78); border-radius: 999px; padding: 6px 12px; font-size: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.jeton b { color: var(--or); }
+#carte-pied { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 10px; pointer-events: none;
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, rgba(8,26,44,.75), rgba(8,26,44,0)); }
+#carte-pied > * { pointer-events: auto; }
+#fiche { position: absolute; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(92vw, 340px);
+  background: var(--abysse); border-radius: 22px; padding: 16px 18px; display: grid; gap: 8px; text-align: center; box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: monte .25s ease-out; }
+#fiche small { color: var(--brume); letter-spacing: .12em; text-transform: uppercase; font-size: 11px; }
+#fiche h3 { margin: 0; font: 800 26px/1.05 var(--f-titre); }
+#fiche .etoiles { font-size: 26px; }
+@keyframes monte { from { transform: translate(-50%, 20px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #serie.pop b, #serie.t4, #serie-perdue, #flash, #banniere, #hint .go, #fiche { animation: none; } }
+</style>
+<!--WRAP-HEAD-END-->
+</head>
+<body>
+<!--WRAP-BODY-START-->
+<div id="app">
+  <canvas id="cv" aria-label="Scène du jeu : touche en haut de l’écran pour monter l’eau, en bas pour la baisser"></canvas>
+
+  <div id="progres" hidden><i id="progres-i"></i></div>
+  <div id="hud" hidden>
+    <button class="rond" id="b-pause" aria-label="Pause">II</button>
+    <div id="hud-centre"><span id="hud-nom">La rivière</span><span id="hud-sub">1-1</span></div>
+    <div id="hud-droite"><span id="coeurs">♥♥♥</span><span id="perles-hud">● <b id="perles-n">0</b></span></div>
+  </div>
+  <div id="serie" hidden><span class="lbl">Série</span><b id="serie-n">0</b><span class="jauge"><i id="serie-jauge"></i></span><span class="info" id="serie-info"></span><span class="mult" id="serie-mult" hidden>×2</span></div>
+  <div id="serie-perdue" hidden></div>
+  <div id="flash" hidden></div>
+  <div id="banniere" hidden><small id="banniere-label"></small><b id="banniere-nom"></b></div>
+  <div id="hint" hidden></div>
+
+  <section class="ecran clair" id="ecran-titre">
+    <h1>Marée</h1>
+    <p class="sous">La capitaine Lou remonte la rivière. Tu ne tiens pas la barre : tu commandes l’eau.</p>
+    <button class="btn enorme" id="b-carte">Jouer</button>
+    <button class="btn second" id="b-fleuve">Le Grand Fleuve</button>
+    <p class="petit" id="titre-info"></p>
+  </section>
+
+  <section id="ecran-carte" hidden>
+    <div id="carte-tete">
+      <button class="rond" id="b-carte-retour" aria-label="Retour">←</button>
+      <h2>La carte</h2>
+      <span class="jeton">★ <b id="carte-etoiles">0</b></span>
+      <span class="jeton">● <b id="carte-perles">0</b></span>
+    </div>
+    <div id="fiche" hidden>
+      <small id="fiche-monde">Monde 1</small>
+      <h3 id="fiche-nom">Le ruisseau</h3>
+      <div class="etoiles" id="fiche-etoiles">★★★</div>
+      <p class="petit" id="fiche-info"></p>
+      <button class="btn" id="b-fiche-jouer">Larguer les amarres</button>
+    </div>
+    <div id="carte-pied">
+      <button class="btn second" id="b-carte-fleuve">Grand Fleuve</button>
+      <button class="rond" id="b-son" aria-label="Son">♪</button>
+    </div>
+  </section>
+
+  <section class="ecran" id="ecran-victoire" hidden>
+    <div class="panneau">
+      <h2 id="v-titre">Bien navigué !</h2>
+      <div class="etoiles" id="v-etoiles">★★★</div>
+      <ul class="stats" id="v-stats"></ul>
+      <button class="btn" id="b-suivant">Niveau suivant</button>
+      <div class="rangee"><button class="btn second" id="b-rejouer">Rejouer</button><button class="btn second" id="b-v-carte">Carte</button></div>
+    </div>
+  </section>
+
+  <section class="ecran clair" id="ecran-defaite" hidden>
+    <h2>Naufrage !</h2>
+    <p class="sous" id="d-texte">Le bateau a pris l’eau.</p>
+    <button class="btn enorme" id="b-reessayer">Réessayer</button>
+    <button class="btn second" id="b-d-carte">Carte</button>
+  </section>
+
+  <section class="ecran clair" id="ecran-fin" hidden>
+    <h2 id="f-titre">Grand Fleuve</h2>
+    <p class="score" id="f-score">0 m</p>
+    <ul class="stats" id="f-stats"></ul>
+    <p class="sous" id="f-record"></p>
+    <button class="btn enorme" id="b-fin-encore">Rejouer</button>
+    <button class="btn second" id="b-fin-carte">Carte</button>
+  </section>
+
+  <section class="ecran" id="ecran-pause" hidden>
+    <div class="panneau">
+      <h2>Pause</h2>
+      <button class="btn" id="b-reprendre">Reprendre</button>
+      <button class="btn second" id="b-recommencer">Recommencer</button>
+      <button class="btn second" id="b-musique">Musique : oui</button>
+      <button class="btn second" id="b-sons">Sons : oui</button>
+      <button class="btn second" id="b-p-carte">Carte</button>
+    </div>
+  </section>
+</div>
+
+<script>
+/*CORE-START*/
+// =====================================================================  règles (partagées avec les tests)
+const PI = Math.PI;
+const LY = [1.0, 1.6, 2.2, 2.8, 3.4];   // hauteur de la surface pour chacun des 5 niveaux d'eau
+const SUB = 4;                          // images (à 30 i/s) pour passer d'un niveau au voisin
+const STEP_T = SUB / 30;
+const G = (LY.length - 1) * SUB + 1;    // positions intermédiaires de l'eau
+const BOAT_HALF = 0.75, BOAT_DRAFT = 0.45, BOAT_TOP = 1.15, CLEAR = 0.12, MARGE = 0.1;
+const yOfG = (g) => LY[0] + (LY[1] - LY[0]) * g / SUB;
+
+function rng32(seed) {
+  return function () {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Un obstacle impose une fenêtre de niveaux [lo, hi] sur une portion de rivière [x0, x1].
+function evOk(ev, y) { return y >= LY[ev.lo] - MARGE && y <= LY[ev.hi] + MARGE; }
+
+// Recherche exhaustive : ensemble des états (hauteur d'eau, sens) atteignables sans rien toucher.
+// L'eau, une fois en mouvement, va jusqu'au niveau voisin (comme dans le jeu).
+function advance(front, x0, x1, speedAt, evs) {
+  let f = front, x = x0;
+  const dt = 1 / 30;
+  while (x < x1) {
+    x += speedAt(x) * dt;
+    const near = evs.filter((e) => e.x0 < x + BOAT_HALF && e.x1 > x - BOAT_HALF);
+    const ok = new Uint8Array(G);
+    for (let g = 0; g < G; g++) ok[g] = near.every((e) => evOk(e, yOfG(g))) ? 1 : 0;
+    const nf = new Uint8Array(G * 3);
+    let any = false;
+    for (let g = 0; g < G; g++) for (let d = 0; d < 3; d++) {
+      if (!f[g * 3 + d]) continue;
+      const opts = g % SUB === 0 ? [0, 1, -1] : [d === 1 ? 1 : -1];
+      for (const o of opts) {
+        const g2 = g + o;
+        if (g2 < 0 || g2 >= G || !ok[g2]) continue;
+        nf[g2 * 3 + (g2 % SUB === 0 ? 0 : o > 0 ? 1 : 2)] = 1; any = true;
+      }
+    }
+    if (!any) return null;
+    f = nf;
+  }
+  return f;
+}
+function startFront(level) { const f = new Uint8Array(G * 3); f[level * SUB * 3] = 1; return f; }
+
+// ---------------------------------------------------------------------  mondes
+const MONDES = [
+  { id: 'pres', nom: 'La Rivière des Prés', lac: 'Lac des Prés',
+    niveaux: ['Le ruisseau', 'Le premier pont', 'Les galets', 'Le moulin', 'Le gué', 'La passerelle', 'Les deux ponts', 'Le lavoir', 'Les nénuphars', 'L’écluse du village'] },
+  { id: 'foret', nom: 'La Forêt Brumeuse', lac: 'Lac Sombre',
+    niveaux: ['L’orée', 'Les troncs', 'Les branches basses', 'Le sous-bois', 'La brume', 'Le pont de lianes', 'Les racines', 'La clairière', 'Le grand chêne', 'La sortie du bois'] },
+  { id: 'marais', nom: 'Le Marais', lac: 'Lac des Grenouilles',
+    niveaux: ['Les roseaux', 'Le premier croco', 'Les pilotis', 'La vase', 'Le banc de sable', 'Le ponton', 'Les crocos jumeaux', 'La mangrove', 'Les lucioles', 'Le roi croco'] },
+  { id: 'gorges', nom: 'Les Gorges Rouges', lac: 'Lac Rouge',
+    niveaux: ['L’entrée des gorges', 'Les éboulis', 'L’arche', 'Le défilé', 'Les mouettes', 'Le canyon', 'Les rapides', 'La falaise', 'Le nid d’aigle', 'La grande arche'] },
+  { id: 'fjord', nom: 'Le Fjord Glacé', lac: 'Lac Gelé',
+    niveaux: ['La banquise', 'Les icebergs', 'L’arche de glace', 'Les phoques', 'Le givre', 'Les stalactites', 'Le glacier', 'Les aurores', 'Le passage nord', 'La source'] },
+];
+// apparence des obstacles selon le monde : [obstacle par en dessous, obstacle par au-dessus]
+const VISUELS = [['rocher', 'pont'], ['tronc', 'branches'], ['croco', 'ponton'], ['eboulis', 'arche'], ['iceberg', 'arcglace']];
+
+// Paramètres d'un niveau : d va de 0 (1-1) à 1 (5-10).
+function levelParams(w, n) {
+  const d = (w * 10 + n) / 49;
+  return {
+    d, v: 2.0 + 1.7 * d,
+    count: 9 + Math.round(n * 1.4 + w * 2.5),
+    gap0: lerp(2.6, 0.95, d), gap1: lerp(3.4, 1.45, d),   // secondes entre deux obstacles
+    pWin: w === 0 && n < 3 ? 0 : 0.18 + 0.4 * d,           // fenêtre (dessus + dessous)
+    pLock: w === 0 && n < 6 ? 0 : 0.08 + 0.17 * d,         // écluse : un seul niveau possible
+    pBird: w >= 3 ? 0.25 : 0,
+    change: 0.6 + 0.35 * d,                                // forcer un changement de niveau
+    big: d,                                                // sauts de plusieurs niveaux
+  };
+}
+
+// Tire un obstacle. last = fenêtre précédente (pour forcer des changements).
+function makeEvent(r, P, x, last, w, attempt) {
+  let kind = 'bas';
+  const u = r();
+  if (u < P.pLock) kind = 'ecluse'; else if (u < P.pLock + P.pWin) kind = 'fenetre'; else kind = r() < 0.5 ? 'bas' : 'haut';
+  if (attempt > 12) kind = r() < 0.5 ? 'bas' : 'haut';
+  let lo = 0, hi = 4;
+  const lastMid = last ? Math.round((last.lo + last.hi) / 2) : 2;
+  const far = (k) => Math.abs(k - lastMid);
+  const pickLevel = (cands) => {
+    const forced = r() < P.change ? cands.filter((k) => far(k) >= (r() < P.big ? 2 : 1)) : cands;
+    const c = forced.length ? forced : cands;
+    return c[Math.floor(r() * c.length)];
+  };
+  if (kind === 'bas') lo = pickLevel([1, 2, 3, 4]);
+  else if (kind === 'haut') hi = pickLevel([0, 1, 2, 3]);
+  else if (kind === 'fenetre') { lo = pickLevel([0, 1, 2, 3]); hi = Math.min(4, lo + (r() < 0.5 ? 1 : 2)); if (lo === 0) hi = Math.min(hi, 2); }
+  else { lo = hi = pickLevel([0, 1, 2, 3, 4]); }
+  if (kind === 'fenetre' && lo === 0 && hi === 4) hi = 2;
+  const len = kind === 'ecluse' ? 0.9 + 0.4 * r() : 1.0 + 1.6 * r();
+  const bird = kind === 'haut' && r() < P.pBird;
+  return { x0: x, x1: x + len, lo, hi, kind, bird, w };
+}
+
+// Construit un niveau en garantissant qu'il existe un passage sans aucun choc.
+function genLevel(w, n) {
+  const P = levelParams(w, n), r = rng32(7919 * (w * 10 + n + 1));
+  const speed = () => P.v;
+  const evs = [], pearls = [];
+  let front = startFront(2), fx = 0, x = 7, last = null;
+  for (let i = 0; i < P.count; i++) {
+    const gap = Math.max(2.0, P.v * lerp(P.gap0, P.gap1, r()));
+    let placed = false;
+    for (let t = 0; t < 30 && !placed; t++) {
+      const ev = makeEvent(r, P, x + gap, last, w, t);
+      const nf = advance(front, fx, ev.x1 + BOAT_HALF + 0.05, speed, [ev]);
+      if (nf) { evs.push(ev); front = nf; fx = ev.x1 + BOAT_HALF + 0.05; x = ev.x1; last = ev; placed = true; }
+    }
+    if (!placed) x += gap;
+  }
+  // perles : entre les obstacles et dans les fenêtres, à une hauteur atteignable
+  for (let i = 0; i < evs.length; i++) {
+    const e = evs[i];
+    if (r() < 0.55) { const k = e.lo + Math.floor(r() * (e.hi - e.lo + 1)); pearls.push({ x: (e.x0 + e.x1) / 2, k }); }
+    const nx = i + 1 < evs.length ? evs[i + 1].x0 : e.x1 + 4;
+    if (nx - e.x1 > 3 && r() < 0.6) { const k = Math.floor(r() * 5); for (let j = 0; j < 3; j++) pearls.push({ x: e.x1 + 1.2 + j * 0.6, k }); }
+  }
+  return { w, n, v: P.v, events: evs, pearls, L: x + 9, P };
+}
+
+// ---- Grand Fleuve : génération par morceaux, toujours avec un passage garanti
+const FLEUVE = { BIOME_LEN: 260, V0: 2.0, ACC: 0.0028, VMAX: 6.5, COEUR: 280 };
+function fleuveSpeed(x) { return Math.min(FLEUVE.VMAX, FLEUVE.V0 + FLEUVE.ACC * Math.max(0, x)); }
+function fleuveBiome(x) { return Math.floor(Math.max(0, x) / FLEUVE.BIOME_LEN) % MONDES.length; }
+function makeFleuve(seed) {
+  return { endless: true, r: rng32(seed), events: [], pearls: [], hearts: [], front: startFront(2), fx: 0, x: 8, last: null, nextHeart: FLEUVE.COEUR, L: Infinity };
+}
+function fleuveExtend(lv, upTo) {
+  while (lv.x < upTo) {
+    const d = Math.min(1, lv.x / 1400), v = fleuveSpeed(lv.x), w = fleuveBiome(lv.x);
+    const P = { d, v, pWin: 0.15 + 0.45 * d, pLock: 0.05 + 0.2 * d, pBird: w >= 3 ? 0.25 : 0, change: 0.65 + 0.3 * d, big: 0.2 + 0.7 * d };
+    const gap = Math.max(1.9, v * lerp(lerp(2.4, 0.85, d), lerp(3.0, 1.3, d), lv.r()));
+    let placed = false;
+    for (let t = 0; t < 30 && !placed; t++) {
+      const ev = makeEvent(lv.r, P, lv.x + gap, lv.last, w, t);
+      const nf = advance(lv.front, lv.fx, ev.x1 + BOAT_HALF + 0.05, fleuveSpeed, [ev]);
+      if (nf) { lv.events.push(ev); lv.front = nf; lv.fx = ev.x1 + BOAT_HALF + 0.05; lv.x = ev.x1; lv.last = ev; placed = true;
+        if (lv.r() < 0.5) lv.pearls.push({ x: (ev.x0 + ev.x1) / 2, k: ev.lo + Math.floor(lv.r() * (ev.hi - ev.lo + 1)) }); }
+    }
+    if (!placed) lv.x += gap;
+    if (lv.x > lv.nextHeart) { lv.hearts.push({ x: lv.x + 1.5, k: lv.last ? lv.last.lo : 2 }); lv.nextHeart += FLEUVE.COEUR; }
+  }
+}
+function fleuvePrune(lv, behind) {
+  lv.events = lv.events.filter((e) => e.x1 > behind);
+  lv.pearls = lv.pearls.filter((p) => p.x > behind);
+  lv.hearts = lv.hearts.filter((p) => p.x > behind);
+}
+/*CORE-END*/
+
+// =====================================================================  outils
+const $ = (id) => document.getElementById(id);
+const app = $('app'), cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, S = 40, bedY = 0;
+const hash = (n) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+function rgb(c) { return c[0] === '#' ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c.match(/\d+/g).slice(0, 3).map(Number); }
+function mix(c1, c2, t, al = 1) {
+  const A = rgb(c1), B = rgb(c2), m = A.map((v, i) => Math.round(lerp(v, B[i], t)));
+  return al < 1 ? `rgba(${m.join(',')},${al})` : `rgb(${m.join(',')})`;
+}
+const alpha = (c, al) => `rgba(${rgb(c).join(',')},${al})`;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function resize() {
+  const r = app.getBoundingClientRect();
+  W = r.width; H = r.height; DPR = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S = Math.max(18, Math.min(W / 7.6, H / 10.5));
+  bedY = Math.round(H * (W > H ? 0.9 : 0.82));
+}
+
+// ---- sauvegarde
+const SAVE = 'maree.v1';
+let save = { stars: Array(50).fill(0), pearls: 0, lacs: Array(5).fill(0), lacsEtoiles: Array(5).fill(0), fleuve: { m: 0, serie: 0 }, serieMax: 0, musique: true, sons: true };
+try { const s = JSON.parse(localStorage.getItem(SAVE)); if (s && Array.isArray(s.stars)) save = { ...save, ...s }; } catch (e) {}
+function persist() { try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) {} }
+const unlocked = (i) => i === 0 || save.stars[i - 1] > 0;
+const mondeOuvert = (w) => unlocked(w * 10);
+const lacOuvert = (w) => save.stars[w * 10 + 4] > 0;
+const totalEtoiles = () => save.stars.reduce((a, b) => a + b, 0) + save.lacsEtoiles.reduce((a, b) => a + b, 0);
+
+// =====================================================================  son
+// Tout est synthétisé : ambiance d'eau, musique générative par monde, effets avec réverbération.
+const Snd = { ac: null, master: null, sfx: null, mus: null, amb: null, verb: null, ambGain: null, next: 0, step: 0, timer: null, theme: 0 };
+function audioInit() {
+  if (Snd.ac) { if (Snd.ac.state === 'suspended') Snd.ac.resume(); return; }
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)(); Snd.ac = ac;
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
+    Snd.master = ac.createGain(); Snd.master.gain.value = 0.9; Snd.master.connect(comp).connect(ac.destination);
+    // réverbération : réponse impulsionnelle fabriquée (bruit qui décroît)
+    const len = ac.sampleRate * 2.2, ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+    Snd.verb = ac.createConvolver(); Snd.verb.buffer = ir;
+    const wet = ac.createGain(); wet.gain.value = 0.32; Snd.verb.connect(wet).connect(Snd.master);
+    Snd.sfx = ac.createGain(); Snd.sfx.gain.value = save.sons ? 0.8 : 0; Snd.sfx.connect(Snd.master); Snd.sfx.connect(Snd.verb);
+    Snd.mus = ac.createGain(); Snd.mus.gain.value = save.musique ? 0.32 : 0; Snd.mus.connect(Snd.master); Snd.mus.connect(Snd.verb);
+    // ambiance : eau qui coule (bruit filtré qui ondule)
+    const nb = ac.createBuffer(1, ac.sampleRate * 3, ac.sampleRate), nd = nb.getChannelData(0);
+    let b = 0; for (let i = 0; i < nd.length; i++) { b = (b + 0.02 * (Math.random() * 2 - 1)) / 1.02; nd[i] = b * 3.5; }
+    const src = ac.createBufferSource(); src.buffer = nb; src.loop = true;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    Snd.ambGain = ac.createGain(); Snd.ambGain.gain.value = 0;
+    const lfo = ac.createOscillator(), lfoG = ac.createGain(); lfo.frequency.value = 0.18; lfoG.gain.value = 250; lfo.connect(lfoG).connect(lp.frequency); lfo.start();
+    src.connect(lp).connect(Snd.ambGain).connect(Snd.sfx); src.start();
+    Snd.next = ac.currentTime + 0.1;
+    Snd.timer = setInterval(musicTick, 30);
+  } catch (e) { Snd.ac = null; }
+}
+function setAmb(v) { if (Snd.ambGain) Snd.ambGain.gain.setTargetAtTime(v, Snd.ac.currentTime, 0.4); }
+function env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); }
+function osc(type, f, t, dur, vol, dest, glide) {
+  const ac = Snd.ac, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t); if (glide) o.frequency.exponentialRampToValueAtTime(f * glide, t + dur);
+  env(g, t, 0.008, vol, dur); o.connect(g).connect(dest || Snd.sfx); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(t, dur, vol, type, f0, f1, q) {
+  const ac = Snd.ac, n = ac.createBufferSource(), len = Math.ceil(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  n.buffer = buf; const f = ac.createBiquadFilter(); f.type = type; f.Q.value = q || 1;
+  f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = ac.createGain(); env(g, t, 0.01, vol, dur); n.connect(f).connect(g).connect(Snd.sfx); n.start(t);
+}
+const PENTA = [0, 2, 4, 7, 9];
+const note = (base, deg) => base * Math.pow(2, (PENTA[((deg % 5) + 5) % 5] + 12 * Math.floor(deg / 5)) / 12);
+const sfx = {
+  ok: () => !!Snd.ac,
+  up() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; noise(t, 0.22, 0.18, 'bandpass', 350, 1500, 2.5); osc('sine', 300, t, 0.14, 0.12, null, 1.9); },
+  down() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; noise(t, 0.22, 0.18, 'bandpass', 1500, 320, 2.5); osc('sine', 520, t, 0.14, 0.12, null, 0.55); },
+  perle() { if (!sfx.ok()) return; const t = Snd.ac.currentTime, f = 1568 + 200 * Math.random(); osc('sine', f, t, 0.5, 0.12); osc('sine', f * 2.76, t, 0.25, 0.04); },
+  tic(n) { if (!sfx.ok()) return; const t = Snd.ac.currentTime; osc('triangle', note(523, Math.min(n, 14)), t, 0.18, 0.09); osc('sine', note(1046, Math.min(n, 14)), t + 0.02, 0.12, 0.03); },
+  palier(n) { if (!sfx.ok()) return; const t = Snd.ac.currentTime; [0, 2, 4, 7, 9, 12].forEach((d, i) => osc('triangle', 523 * Math.pow(2, d / 12), t + i * 0.06, 0.4, 0.09));
+    osc('sine', 2093, t + 0.36, 0.8, 0.05); noise(t + 0.3, 0.6, 0.06, 'highpass', 6000, 9000); osc('sawtooth', 130.8, t, 0.6, 0.05); },
+  choc() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; osc('sine', 120, t, 0.35, 0.5, null, 0.4); noise(t, 0.35, 0.35, 'lowpass', 2500, 300); osc('square', 180, t, 0.08, 0.08, null, 0.6); },
+  perdue() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; osc('triangle', 392, t, 0.2, 0.08, null, 0.7); osc('triangle', 311, t + 0.14, 0.3, 0.08, null, 0.7); },
+  coeur() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; [0, 4, 7, 12].forEach((d, i) => osc('sine', 659 * Math.pow(2, d / 12), t + i * 0.05, 0.3, 0.08)); },
+  victoire() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; [[0, 0], [4, 0.12], [7, 0.24], [12, 0.36], [16, 0.5]].forEach(([d, dt]) => { osc('triangle', 392 * Math.pow(2, d / 12), t + dt, 0.5, 0.11); osc('sine', 196 * Math.pow(2, d / 12), t + dt, 0.5, 0.05); }); },
+  naufrage() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; [0, -3, -7, -12].forEach((d, i) => osc('triangle', 330 * Math.pow(2, d / 12), t + i * 0.16, 0.4, 0.1)); noise(t, 1.2, 0.15, 'lowpass', 1200, 150); },
+  clic() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; osc('sine', 880, t, 0.06, 0.06, null, 1.4); },
+  carte() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; for (let i = 0; i < 7; i++) osc('triangle', note(392, i), t + i * 0.035, 0.35, 0.05); },
+  peche(v) { if (!sfx.ok()) return; const t = Snd.ac.currentTime; noise(t, 0.18, 0.15, 'bandpass', 900, 2500, 3); osc('sine', 600 + v * 120, t + 0.05, 0.2, 0.09, null, 1.5); },
+  meduse() { if (!sfx.ok()) return; const t = Snd.ac.currentTime; osc('sawtooth', 220, t, 0.25, 0.07, null, 0.5); noise(t, 0.2, 0.1, 'highpass', 3000, 1500); },
+};
+// Musique : arpèges pentatoniques générés à partir d'une graine par thème (carte, mondes, lac, fleuve).
+const THEMES = [
+  { base: 261.6, tempo: 104, prog: [0, 3, 4, 2] },   // carte
+  { base: 293.7, tempo: 112, prog: [0, 4, 2, 3] },   // prés
+  { base: 246.9, tempo: 96, prog: [0, 2, 3, 1] },    // forêt
+  { base: 220.0, tempo: 92, prog: [0, 3, 1, 4] },    // marais
+  { base: 277.2, tempo: 120, prog: [0, 4, 3, 2] },   // gorges
+  { base: 329.6, tempo: 100, prog: [0, 2, 4, 3] },   // fjord
+  { base: 349.2, tempo: 126, prog: [0, 3, 4, 1] },   // lac
+];
+function setTheme(i, tempoBoost = 0) { Snd.theme = i; Snd.boost = tempoBoost; }
+function musicTick() {
+  const ac = Snd.ac; if (!ac || !save.musique || document.hidden) { if (ac) Snd.next = ac.currentTime + 0.1; return; }
+  const th = THEMES[Snd.theme], spb = 60 / (th.tempo + (Snd.boost || 0)) / 2;
+  while (Snd.next < ac.currentTime + 0.15) {
+    const t = Snd.next, st = Snd.step, bar = Math.floor(st / 8) % 4, root = th.prog[bar];
+    const r = hash(st * 7.13 + Snd.theme * 31);
+    if (st % 8 === 0) { osc('sine', th.base / 2 * Math.pow(2, PENTA[root % 5] / 12), t, spb * 7, 0.16, Snd.mus); osc('triangle', th.base * Math.pow(2, PENTA[root % 5] / 12), t, spb * 6, 0.03, Snd.mus); }
+    if (st % 4 === 2) osc('sine', th.base / 2 * Math.pow(2, PENTA[(root + 2) % 5] / 12), t, spb * 2, 0.08, Snd.mus);
+    if (r > 0.28) osc('triangle', note(th.base * 2, root + Math.floor(r * 7) - 1), t, spb * 1.6, 0.05 + 0.03 * (st % 2 === 0), Snd.mus);
+    if (st % 16 === 15) noise(t, 0.08, 0.02, 'highpass', 7000, 9000);
+    Snd.next += spb; Snd.step++;
+  }
+}
+function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+
+// =====================================================================  état
+let mode = 'titre';   // titre | carte | pret | jeu | fin-anim | victoire | defaite | pause | lac | fin
+let lv = null, cur = 0, clock = 0, last = 0;
+let ti = 2, wy = LY[2], bx = 0, hearts = 3, invul = 0, shake = 0, perlesRun = 0, runT = 0, phaseT = 0, coups = 0;
+let serie = 0, serieMax = 0, particles = [], textes = [], tilt = 0, splashT = 0, popCoeur = 0;
+let carteY = 0, carteVel = 0, carteSel = null, lac = null;
+
+function show(id, on) { $(id).hidden = !on; }
+function screens(active) { for (const id of ['ecran-titre', 'ecran-carte', 'ecran-victoire', 'ecran-defaite', 'ecran-fin', 'ecran-pause']) show(id, id === active); }
+function hudVisible(on) { show('hud', on); show('progres', on && !(lv && lv.endless)); show('serie', on); if (!on) { show('hint', false); show('serie-perdue', false); } }
+
+// ---- bannière, série, effets
+function banner(nom, lbl = '') {
+  const el = $('banniere'); $('banniere-nom').textContent = nom; $('banniere-label').textContent = lbl;
+  el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(banner.t); banner.t = setTimeout(() => { el.hidden = true; }, 2700);
+}
+function flash(col) {
+  const el = $('flash'); el.style.background = `radial-gradient(circle at 50% 40%, ${col}, rgba(0,0,0,0) 70%)`;
+  el.hidden = true; void el.offsetWidth; el.hidden = false; clearTimeout(flash.t); flash.t = setTimeout(() => { el.hidden = true; }, 750);
+}
+const PALIERS = [5, 10, 15, 25, 35, 50, 75, 100, 150, 200, 300];
+const palierSuivant = (n) => PALIERS.find((p) => p > n) || Math.ceil((n + 1) / 100) * 100;
+const tier = (n) => (n >= 30 ? 4 : n >= 15 ? 3 : n >= 5 ? 2 : n > 0 ? 1 : 0);
+const mult = (n) => 1 + Math.min(4, Math.floor(n / 10));
+const TIER_COL = ['#ffffff', '#ffe07a', '#ffa94d', '#ff6b8b', '#b89bff'];
+function majSerie(pop) {
+  const el = $('serie');
+  $('serie-n').textContent = serie;
+  const nxt = palierSuivant(serie), prev = [...PALIERS].reverse().find((p) => p <= serie) || 0;
+  $('serie-jauge').style.width = `${Math.round(((serie - prev) / (nxt - prev)) * 100)}%`;
+  $('serie-info').textContent = `palier ${nxt} · record ${Math.max(save.serieMax, serieMax)}`;
+  const m = mult(serie); $('serie-mult').hidden = m < 2; $('serie-mult').textContent = `×${m}`;
+  el.className = ['zero', 't1', 't2', 't3', 't4'][tier(serie)];
+  if (pop) { void el.offsetWidth; el.classList.add('pop'); }
+}
+function seriePerdue(n) {
+  const el = $('serie-perdue'); el.textContent = `Série perdue : ${n}`;
+  el.hidden = true; void el.offsetWidth; el.hidden = false; clearTimeout(seriePerdue.t); seriePerdue.t = setTimeout(() => { el.hidden = true; }, 1500);
+}
+function confettis(n, x, y) {
+  const cols = ['#ffcf4a', '#ff7a59', '#4fd1c5', '#b89bff', '#ffffff', '#7ee081'];
+  for (let i = 0; i < n; i++) particles.push({ kind: 'conf', sx: x ?? Math.random() * W, sy: y ?? -10, vx: (Math.random() - 0.5) * 260, vy: (y != null ? -200 : 0) + Math.random() * 120, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 12, life: 2.2, col: cols[i % cols.length], sz: 5 + Math.random() * 5 });
+}
+function texte(t, sx, sy, col, big) { textes.push({ t, sx, sy, col: col || '#fff', life: 1.1, big }); }
+function gagneSerie() {
+  serie++; serieMax = Math.max(serieMax, serie); majSerie(true); sfx.tic(serie);
+  if (serie % 5 === 0) texte(['Joli !', 'Parfait !', 'Superbe !', 'Incroyable !', 'Légendaire !'][Math.min(4, tier(serie))], W * 0.3, bedY - LY[4] * S - 1.6 * S, TIER_COL[tier(serie)], true);
+  if (PALIERS.includes(serie) || (serie > 300 && serie % 100 === 0)) {
+    sfx.palier(serie); flash(alpha(TIER_COL[Math.max(1, tier(serie))], 0.55)); shake = Math.max(shake, 0.25); buzz([20, 30, 20]);
+    confettis(40 + Math.min(80, serie)); banner(`${serie} d’affilée`, mult(serie) > 1 ? `Série parfaite · perles ×${mult(serie)}` : 'Série parfaite');
+    if (lv && lv.endless && serie % 25 === 0 && hearts < 3) { hearts++; popCoeur = 1; sfx.coeur(); }
+  }
+}
+function casseSerie() { if (serie >= 3) { seriePerdue(serie); sfx.perdue(); } serie = 0; majSerie(); }
+
+// =====================================================================  parties
+function stopToutesBoucles() { setAmb(0); }
+function demarrerNiveau(i) {
+  cur = i; lv = genLevel(Math.floor(i / 10), i % 10); lv.biome = Math.floor(i / 10);
+  preparer();
+  paysage = paysagePrec = lv.w; paysageT = 1;   // le décor du monde s'affiche tout de suite
+  const M = MONDES[lv.w];
+  $('hud-nom').textContent = M.niveaux[lv.n];
+  $('hud-sub').textContent = `${lv.w + 1}-${lv.n + 1} · ${M.nom}`;
+  const hints = ['Touche en haut pour monter l’eau, en bas pour la baisser (ou ↑ ↓). Passe sous les ponts, au-dessus des rochers.',
+    'Les troncs dorment au fond, les branches pendent bas.', 'Les crocodiles mordent si l’eau est trop basse.', 'Les mouettes piquent les bateaux trop hauts.', 'La glace ne pardonne rien. Courage, capitaine !'];
+  pretHint(lv.n === 0 ? hints[lv.w] : `Monde ${lv.w + 1} · niveau ${lv.n + 1} sur 10. Ne touche rien pour 3 étoiles.`);
+  setTheme(1 + lv.w);
+}
+function demarrerFleuve() {
+  cur = -1; lv = makeFleuve((Math.random() * 1e9) | 0); lv.biome = 0; fleuveExtend(lv, 60);
+  paysage = paysagePrec = 0; paysageT = 1;
+  preparer();
+  $('hud-nom').textContent = 'Le Grand Fleuve'; $('hud-sub').textContent = '0 m';
+  pretHint('Pas d’arrivée : tiens le plus longtemps possible. Le courant accélère, les biomes défilent. Les cœurs flottants réparent la coque.');
+  setTheme(1);
+}
+function preparer() {
+  ti = 2; wy = LY[2]; bx = 0; hearts = 3; invul = 0; shake = 0; perlesRun = 0; runT = 0; phaseT = 0; coups = 0;
+  serie = 0; serieMax = 0; particles = []; textes = []; tilt = 0; lv.biomeVu = -1;
+  screens(null); hudVisible(true); majSerie(); majHud(); mode = 'pret'; setAmb(0.06);
+}
+function pretHint(t) {
+  const h = $('hint'); h.innerHTML = ''; const a = document.createElement('span'); a.textContent = t;
+  const go = document.createElement('span'); go.className = 'go'; go.textContent = 'Touche l’écran pour partir'; h.append(a, go); show('hint', true);
+}
+function majHud() {
+  $('coeurs').innerHTML = '♥'.repeat(hearts) + '<i>' + '♥'.repeat(Math.max(0, 3 - hearts)) + '</i>';
+  $('perles-n').textContent = perlesRun;
+}
+function partir() { if (mode !== 'pret') return; mode = 'jeu'; const g = $('hint').querySelector('.go'); if (g) g.remove(); setTimeout(() => { if (mode === 'jeu') show('hint', false); }, 3500); }
+
+function terminer(gagne) {
+  setAmb(0.02); hudVisible(false);
+  save.serieMax = Math.max(save.serieMax, serieMax);
+  if (lv.endless) {
+    const rec = bx > save.fleuve.m;
+    if (rec) save.fleuve.m = bx;
+    save.fleuve.serie = Math.max(save.fleuve.serie || 0, serieMax);
+    save.pearls += perlesRun; persist();
+    $('f-titre').textContent = 'Le Grand Fleuve'; $('f-score').textContent = `${Math.floor(bx)} m`;
+    $('f-stats').innerHTML = `<li>Temps : <b>${fmt(runT)}</b> · vitesse finale <b>${fleuveSpeed(bx).toFixed(1).replace('.', ',')} m/s</b></li><li>Meilleure série : <b>${serieMax}</b> · perles : <b>${perlesRun}</b></li>`;
+    $('f-record').textContent = rec ? 'Nouveau record !' : `Record : ${Math.floor(save.fleuve.m)} m`;
+    mode = 'fin'; screens('ecran-fin'); $('b-fin-encore').onclick = () => demarrerFleuve(); return;
+  }
+  if (gagne) {
+    const st = Math.max(1, 3 - coups);
+    if (st > save.stars[cur]) save.stars[cur] = st;
+    save.pearls += perlesRun; persist();
+    $('v-etoiles').innerHTML = '★'.repeat(st) + '<i>' + '★'.repeat(3 - st) + '</i>';
+    $('v-titre').textContent = st === 3 ? 'Navigation parfaite !' : 'Bien navigué !';
+    $('v-stats').innerHTML = `<li>Chocs : <b>${coups}</b> · meilleure série : <b>${serieMax}</b></li><li>Perles : <b>${perlesRun}</b></li>`;
+    const fin = cur === 49, finMonde = cur % 10 === 9;
+    $('b-suivant').textContent = fin ? 'Voir la carte' : finMonde ? 'Monde suivant' : 'Niveau suivant';
+    mode = 'victoire'; screens('ecran-victoire'); sfx.victoire(); confettis(120); setTheme(0);
+    if (cur % 10 === 4) setTimeout(() => banner(`${MONDES[lv.w].lac} ouvert`, 'Nouveau mini-jeu'), 600);
+  } else {
+    $('d-texte').textContent = ['Le bateau a pris l’eau.', 'Lou a perdu son chapeau.', 'Trois chocs, c’est trop pour la coque.'][Math.floor(Math.random() * 3)];
+    mode = 'defaite'; screens('ecran-defaite'); sfx.naufrage();
+  }
+}
+const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+// =====================================================================  boucle de jeu
+function vitesse() { return lv.endless ? fleuveSpeed(bx) : lv.v; }
+function update(dt) {
+  clock += dt;
+  for (const p of particles) {
+    p.life -= dt;
+    if (p.kind === 'conf') { p.sx += p.vx * dt; p.sy += p.vy * dt; p.vy += 260 * dt; p.vx *= 0.99; p.rot += p.vr * dt; }
+    else { p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= (p.g ?? 9) * dt; }
+  }
+  particles = particles.filter((p) => p.life > 0);
+  for (const t of textes) { t.life -= dt; t.sy -= 40 * dt; }
+  textes = textes.filter((t) => t.life > 0);
+  shake = Math.max(0, shake - dt); popCoeur = Math.max(0, popCoeur - dt * 1.5);
+  if (mode === 'carte') { if (!drag) { carteY += carteVel * dt; carteVel *= Math.pow(0.04, dt); clampCarte(); } return; }
+  if (mode === 'lac') { updateLac(dt); return; }
+  if (mode !== 'jeu' && mode !== 'pret' && mode !== 'fin-anim') return;
+  // l'eau suit le niveau visé à vitesse constante
+  const sp = (LY[1] - LY[0]) / STEP_T, tgt = LY[ti];
+  const dy = tgt - wy; wy += clamp(dy, -sp * dt, sp * dt);
+  tilt = lerp(tilt, clamp(dy * 0.6, -0.25, 0.25), 1 - Math.pow(0.001, dt));
+  if (mode !== 'jeu') return;
+  runT += dt; const v = vitesse(); bx += v * dt;
+  invul = Math.max(0, invul - dt);
+  if (lv.endless) {
+    fleuveExtend(lv, bx + W / S + 30);
+    if (lv.events.length > 80) fleuvePrune(lv, bx - 20);
+    const b = fleuveBiome(bx);
+    if (b !== lv.biome) { lv.biome = b; banner(MONDES[b].nom, 'Nouveau paysage'); setTheme(1 + b, Math.min(40, bx / 30)); }
+    $('hud-sub').textContent = `${Math.floor(bx)} m · ${fmt(runT)} · ${v.toFixed(1).replace('.', ',')} m/s`;
+  } else {
+    $('progres-i').style.width = `${Math.min(100, (bx / lv.L) * 100)}%`;
+  }
+  // sillage
+  if (Math.random() < dt * 30) particles.push({ x: bx - 0.8, y: wy - 0.05, vx: -v * 0.3 - Math.random(), vy: 0.6 + Math.random() * 0.6, life: 0.6, r: 0.05 + Math.random() * 0.06, kind: 'goutte', g: 6 });
+  // obstacles
+  for (const ev of lv.events) {
+    const over = ev.x0 < bx + BOAT_HALF && ev.x1 > bx - BOAT_HALF;
+    if (over && !ev.hit && !evOk(ev, wy) && invul <= 0) {
+      ev.hit = true; coups++; hearts--; invul = 1.0; shake = 0.45; sfx.choc(); buzz([60, 30, 60]); flash('rgba(255,70,70,.45)'); casseSerie(); majHud();
+      for (let i = 0; i < 18; i++) particles.push({ x: bx + 0.3, y: wy + 0.3, vx: (Math.random() - 0.3) * 4, vy: Math.random() * 4, life: 0.8, r: 0.05 + Math.random() * 0.07, kind: 'eclat', g: 9 });
+      if (hearts <= 0) { mode = 'fin-anim'; phaseT = 0; return; }
+    }
+    if (!ev.passe && bx - BOAT_HALF > ev.x1) { ev.passe = true; if (!ev.hit) gagneSerie(); }
+  }
+  for (const p of lv.pearls) {
+    if (!p.pris && Math.abs(p.x - bx) < 0.5 && Math.abs(LY[p.k] - wy) < 0.3) {
+      p.pris = true; const m = mult(serie); perlesRun += m; sfx.perle(); majHud();
+      texte(`+${m}`, W * 0.3 + 10, bedY - (LY[p.k] + 0.9) * S, '#ffffff');
+      for (let i = 0; i < 8; i++) particles.push({ x: p.x, y: LY[p.k] + 0.5, vx: (Math.random() - 0.5) * 2, vy: Math.random() * 2, life: 0.6, r: 0.04, kind: 'brille', g: 2 });
+    }
+  }
+  if (lv.endless) for (const h of lv.hearts) {
+    if (!h.pris && Math.abs(h.x - bx) < 0.6 && Math.abs(LY[h.k] - wy) < 0.4) { h.pris = true; if (hearts < 3) { hearts++; popCoeur = 1; } sfx.coeur(); majHud(); texte('+♥', W * 0.3, bedY - (LY[h.k] + 1) * S, '#ff6b8b', true); }
+  }
+  if (!lv.endless && bx > lv.L) { mode = 'fin-anim'; phaseT = 0; lv.gagne = true; }
+}
+function updateFinAnim(dt) {
+  if (mode !== 'fin-anim') return;
+  phaseT += dt;
+  if (lv.gagne) bx += vitesse() * dt * Math.max(0, 1 - phaseT);
+  if (phaseT > 1.2) terminer(!!lv.gagne);
+}
+
+// =====================================================================  dessin de la scène
+const BIOMES = [
+  { ciel: ['#6cc0f2', '#d6f0ff'], loin: '#9cc9a6', mid: '#6fae63', rive: '#7dbb57', rive2: '#5f9a42', lit: '#d9c48f', eau: ['#56b8ea', '#1d6aa3'], arbre: 'rond', soleil: '#fff3b8' },
+  { ciel: ['#86aebd', '#dbe9e6'], loin: '#7f9f93', mid: '#3f6b52', rive: '#4f8045', rive2: '#3a6534', lit: '#b5a37c', eau: ['#4aa8aa', '#185a6a'], arbre: 'sapin', soleil: '#fff6d6', brume: true },
+  { ciel: ['#a7bc86', '#eef0cf'], loin: '#8f9a6a', mid: '#5d6c3c', rive: '#6c7b3f', rive2: '#556431', lit: '#8f8a5e', eau: ['#6f9a6a', '#2c5641'], arbre: 'saule', soleil: '#fff0c0' },
+  { ciel: ['#f2a46c', '#ffe4bd'], loin: '#d99a74', mid: '#b05a38', rive: '#c06a42', rive2: '#9d4f32', lit: '#dba36e', eau: ['#45adb8', '#135e76'], arbre: 'cactus', soleil: '#fff1c9' },
+  { ciel: ['#93bfe8', '#eef6ff'], loin: '#c9dcec', mid: '#9fb9d0', rive: '#e3eef6', rive2: '#c3d6e6', lit: '#9fb3c4', eau: ['#62b6dd', '#1a5784'], arbre: 'sapinneige', soleil: '#ffffff' },
+];
+const SX = (x, cx) => (x - cx) * S;
+const SY = (y) => bedY - y * S;
+let paysage = 0, paysageT = 1, paysagePrec = 0;   // fondu entre biomes du Grand Fleuve
+function pal() {
+  const b = lv ? (lv.endless ? lv.biome : lv.w) : 0;
+  if (b !== paysage) { paysagePrec = paysage; paysage = b; paysageT = 0; }
+  paysageT = Math.min(1, paysageT + 0.008);
+  const A = BIOMES[paysagePrec], B = BIOMES[paysage], t = paysageT;
+  if (t >= 1) return B;
+  const m = (a, b) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : typeof a === 'string' && a[0] === '#' ? mix(a, b, t) : t < 0.5 ? a : b);
+  const R = {}; for (const k in B) R[k] = m(A[k], B[k]); return R;
+}
+function camX() { return bx - (W / S) * 0.3; }
+
+function drawSky(P, cx) {
+  const g = ctx.createLinearGradient(0, 0, 0, SY(4.6));
+  g.addColorStop(0, P.ciel[0]); g.addColorStop(1, P.ciel[1]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, SY(4.6) + 2);
+  const sx = W * 0.78, sy = SY(4.6) * 0.32, r = S * 0.6;
+  const bl = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 4.5);
+  bl.addColorStop(0, alpha(P.soleil, 0.7)); bl.addColorStop(1, alpha(P.soleil, 0));
+  ctx.fillStyle = bl; ctx.beginPath(); ctx.arc(sx, sy, r * 4.5, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = P.soleil; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 2 * PI); ctx.fill();
+  // nuages
+  for (let i = 0; i < 6; i++) {
+    const span = W / S + 26; let x = (hash(i) * span - cx * 0.08 + clock * 0.25 * (0.4 + hash(i + 2))) % span; if (x < 0) x += span;
+    const px = (x - 8) * S, py = SY(4.6) * (0.15 + 0.5 * hash(i + 5)), w = S * (1.5 + 2 * hash(i + 7));
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    for (let j = 0; j < 5; j++) { const u = j / 4 - 0.5; ctx.beginPath(); ctx.ellipse(px + u * w, py - (0.25 - u * u) * w * 0.4, w * (0.32 - Math.abs(u) * 0.2), w * (0.18 - Math.abs(u) * 0.08), 0, 0, 2 * PI); ctx.fill(); }
+    ctx.fillStyle = 'rgba(200,220,240,.35)'; ctx.beginPath(); ctx.ellipse(px, py + w * 0.06, w * 0.4, w * 0.05, 0, 0, 2 * PI); ctx.fill();
+  }
+}
+
+function collines(par, cx, base, amp, freq, col, pointu) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-5, SY(4.4));
+  for (let sx = -5; sx <= W + 5; sx += 6) {
+    const w = sx / S + cx * par;
+    let n = 0.5 * Math.sin(w * freq) + 0.3 * Math.sin(w * freq * 2.1 + 1.3) + 0.2 * Math.sin(w * freq * 4.7);
+    if (pointu) n = 1 - Math.abs(n) * 1.4;
+    ctx.lineTo(sx, SY(4.4 + base + amp * n));
+  }
+  ctx.lineTo(W + 5, SY(4.4)); ctx.closePath(); ctx.fill();
+}
+function petitArbre(px, py, h, kind, col, seed) {
+  ctx.fillStyle = col;
+  if (kind === 'sapin' || kind === 'sapinneige') {
+    for (let i = 0; i < 3; i++) { const y0 = py - h * (0.15 + i * 0.25), w = h * (0.3 - i * 0.07); ctx.beginPath(); ctx.moveTo(px - w, y0); ctx.lineTo(px, y0 - h * 0.42); ctx.lineTo(px + w, y0); ctx.fill(); }
+    if (kind === 'sapinneige') { ctx.fillStyle = 'rgba(255,255,255,.9)'; for (let i = 0; i < 3; i++) { const y0 = py - h * (0.15 + i * 0.25) - h * 0.42; ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px - h * 0.08, y0 + h * 0.12); ctx.lineTo(px + h * 0.08, y0 + h * 0.12); ctx.fill(); } }
+  } else if (kind === 'cactus') {
+    ctx.fillRect(px - h * 0.06, py - h * 0.8, h * 0.12, h * 0.8);
+    ctx.fillRect(px - h * 0.28, py - h * 0.55, h * 0.22, h * 0.08); ctx.fillRect(px - h * 0.28, py - h * 0.75, h * 0.08, h * 0.25);
+    ctx.fillRect(px + h * 0.06, py - h * 0.42, h * 0.2, h * 0.08); ctx.fillRect(px + h * 0.2, py - h * 0.62, h * 0.08, h * 0.25);
+  } else if (kind === 'saule') {
+    ctx.beginPath(); ctx.ellipse(px, py - h * 0.6, h * 0.38, h * 0.32, 0, 0, 2 * PI); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, h * 0.04);
+    for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(px + i * h * 0.1, py - h * 0.45); ctx.quadraticCurveTo(px + i * h * 0.13, py - h * 0.2, px + i * h * 0.12 + Math.sin(clock + i) * 2, py - h * 0.05); ctx.stroke(); }
+    ctx.fillRect(px - h * 0.04, py - h * 0.4, h * 0.08, h * 0.4);
+  } else {
+    for (let i = 0; i < 4; i++) { const u = i / 3 - 0.5; ctx.beginPath(); ctx.arc(px + u * h * 0.4, py - h * (0.55 + 0.12 * Math.cos(u * 3) + 0.06 * hash(seed + i)), h * 0.25, 0, 2 * PI); ctx.fill(); }
+    ctx.fillRect(px - h * 0.04, py - h * 0.35, h * 0.08, h * 0.35);
+  }
+}
+function drawDecor(P, cx) {
+  const loin = P.loin, mid = P.mid;
+  collines(0.06, cx, 1.6, 1.6, 0.25, mix(loin, P.ciel[1], 0.35), P.arbre === 'cactus' || P.arbre === 'sapinneige');
+  collines(0.15, cx, 0.8, 1.0, 0.45, loin, false);
+  // arbres lointains sur la rive d'en face
+  const par = 0.35, off = cx * par, step = 0.7;
+  for (let w = Math.floor(off / step) * step - 2; w < off + W / S + 2; w += step) {
+    const id = Math.round(w / step), h = hash(id);
+    if (P.arbre === 'cactus' && h < 0.6) continue;
+    petitArbre((w - off) * S, SY(4.4), S * (0.9 + 0.8 * hash(id + 0.5)), P.arbre, mix(mid, P.ciel[1], 0.25), id);
+  }
+  // rive d'en face (au-dessus du niveau d'eau maximal)
+  const g = ctx.createLinearGradient(0, SY(4.6), 0, SY(3.6));
+  g.addColorStop(0, P.rive); g.addColorStop(1, P.rive2);
+  ctx.fillStyle = g; ctx.fillRect(0, SY(4.5), W, SY(3.55) - SY(4.5));
+  // roseaux et herbes sur la rive
+  ctx.strokeStyle = mix(P.rive2, '#203018', 0.3); ctx.lineWidth = Math.max(1, S * 0.03);
+  for (let i = Math.floor(cx * 4) - 2; i < (cx + W / S) * 4 + 2; i++) {
+    const h = hash(i + 0.3), px = SX(i / 4, cx), len = S * (0.15 + 0.25 * h);
+    ctx.beginPath(); ctx.moveTo(px, SY(3.62)); ctx.quadraticCurveTo(px + len * 0.2, SY(3.62) - len * 0.6, px + len * (0.3 * h - 0.1), SY(3.62) - len); ctx.stroke();
+  }
+  if (P.brume) { const b = ctx.createLinearGradient(0, SY(5.5), 0, SY(3.6)); b.addColorStop(0, 'rgba(230,240,240,0)'); b.addColorStop(1, 'rgba(230,240,240,.45)'); ctx.fillStyle = b; ctx.fillRect(0, SY(5.5), W, SY(3.6) - SY(5.5)); }
+}
+
+function surfaceY(sx) { return SY(wy) + Math.sin(sx * 0.03 + clock * 2.2) * 2.5 + Math.sin(sx * 0.071 - clock * 1.7) * 1.5; }
+function drawWaterBack(P, cx) {
+  // berge d'en face, en terre mouillée : elle se découvre quand l'eau baisse
+  const gw = ctx.createLinearGradient(0, SY(3.6), 0, SY(0.2));
+  gw.addColorStop(0, mix(P.rive2, '#5a4632', 0.55)); gw.addColorStop(1, mix(P.lit, '#3a2f22', 0.45));
+  ctx.fillStyle = gw; ctx.fillRect(0, SY(3.6) - 1, W, SY(0.2) - SY(3.6) + 2);
+  ctx.strokeStyle = 'rgba(0,0,0,.08)'; ctx.lineWidth = 2;
+  for (let k = 1; k < 5; k++) { const y = SY(LY[k - 1] + 0.3); ctx.beginPath(); for (let sx = 0; sx <= W; sx += 14) ctx.lineTo(sx, y + Math.sin((sx / S + cx) * 1.3 + k) * 3); ctx.stroke(); }
+  for (let i = Math.floor(cx * 2) - 2; i < (cx + W / S) * 2 + 2; i++) {
+    const h = hash(i * 3.1); if (h < 0.5) continue;
+    ctx.fillStyle = 'rgba(40,30,20,.25)'; ctx.beginPath(); ctx.ellipse(SX(i / 2, cx), SY(0.6 + 2.6 * hash(i + 11)), S * 0.12, S * 0.07, 0, 0, 2 * PI); ctx.fill();
+  }
+  // fond de la rivière (sable, galets), visible à travers l'eau
+  const gb = ctx.createLinearGradient(0, SY(0.4), 0, H);
+  gb.addColorStop(0, P.lit); gb.addColorStop(1, mix(P.lit, '#3a2f22', 0.6));
+  ctx.fillStyle = gb; ctx.fillRect(0, SY(0.25), W, H - SY(0.25));
+  for (let i = Math.floor(cx * 3) - 2; i < (cx + W / S) * 3 + 2; i++) {
+    const h = hash(i * 1.7), px = SX(i / 3 + h * 0.3, cx), py = SY(0.15 - 0.2 * hash(i + 3));
+    ctx.fillStyle = h > 0.5 ? 'rgba(80,60,40,.35)' : 'rgba(255,245,220,.3)';
+    ctx.beginPath(); ctx.ellipse(px, py, S * (0.06 + 0.08 * h), S * (0.03 + 0.03 * h), 0, 0, 2 * PI); ctx.fill();
+  }
+  // algues qui ondulent
+  ctx.strokeStyle = P.arbre === 'sapinneige' ? 'rgba(120,170,190,.6)' : 'rgba(60,120,70,.75)'; ctx.lineWidth = Math.max(2, S * 0.05); ctx.lineCap = 'round';
+  for (let i = Math.floor(cx * 1.2) - 1; i < (cx + W / S) * 1.2 + 1; i++) {
+    if (hash(i + 9) < 0.45) continue;
+    const px = SX(i / 1.2, cx), h = S * (0.5 + 0.7 * hash(i + 4));
+    for (let j = 0; j < 3; j++) { ctx.beginPath(); ctx.moveTo(px + j * 5, SY(0.25)); ctx.quadraticCurveTo(px + j * 5 + Math.sin(clock * 1.5 + i + j) * 8, SY(0.25) - h * 0.5, px + j * 5 + Math.sin(clock * 1.2 + i * 2 + j) * 10, SY(0.25) - h); ctx.stroke(); }
+  }
+  // poissons de décor
+  for (let i = 0; i < 4; i++) {
+    const span = W / S + 10, x = ((hash(i + 40) * span + clock * (0.4 + 0.3 * hash(i))) % span) - 4 + cx * 0.9;
+    const px = SX(x, cx), py = SY(0.5 + 1.0 * hash(i + 41) * (wy - 0.6) / 1.0);
+    if (py < SY(wy) + 10) continue;
+    ctx.fillStyle = ['rgba(255,170,90,.7)', 'rgba(255,230,120,.65)', 'rgba(170,200,255,.6)', 'rgba(255,140,160,.6)'][i];
+    ctx.beginPath(); ctx.ellipse(px, py, S * 0.16, S * 0.07, 0, 0, 2 * PI); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(px - S * 0.14, py); ctx.lineTo(px - S * 0.26, py - S * 0.07); ctx.lineTo(px - S * 0.26, py + S * 0.07); ctx.fill();
+  }
+}
+function drawWaterFront(P) {
+  // eau : surface ondulée, dégradé, reflets de lumière
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let sx = 0; sx <= W + 6; sx += 6) ctx.lineTo(sx, surfaceY(sx));
+  ctx.lineTo(W, H); ctx.closePath();
+  const g = ctx.createLinearGradient(0, SY(wy), 0, SY(0));
+  g.addColorStop(0, alpha(P.eau[0], 0.72)); g.addColorStop(1, alpha(P.eau[1], 0.86));
+  ctx.fillStyle = g; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 2;   // caustiques
+  for (let i = 0; i < 9; i++) { const y = SY(wy) + 12 + i * (SY(0) - SY(wy)) / 9; ctx.beginPath(); for (let sx = 0; sx <= W; sx += 12) ctx.lineTo(sx, y + Math.sin(sx * 0.05 + clock * 2 + i) * 4); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 2.5;  // écume de surface
+  ctx.beginPath(); for (let sx = 0; sx <= W + 6; sx += 6) { const y = surfaceY(sx); sx ? ctx.lineTo(sx, y) : ctx.moveTo(sx, y); } ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.55)';
+  for (let i = 0; i < 14; i++) { const sx = (hash(i) * W + clock * 30 * (0.5 + hash(i + 1))) % W; ctx.fillRect(sx, surfaceY(sx) + 4 + hash(i + 2) * 10, 10 + 14 * hash(i + 3), 2); }
+  // repères des 5 niveaux d'eau, sur le bord gauche
+  for (let k = 0; k < 5; k++) {
+    const y = SY(LY[k]);
+    ctx.fillStyle = k === ti ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.35)';
+    ctx.fillRect(4, y - 1.5, k === ti ? 16 : 10, 3);
+  }
+}
+
+// ---- obstacles
+function drawBas(ev, kind, x0, x1) {
+  const top = SY(LY[ev.lo] - BOAT_DRAFT - CLEAR), base = SY(0.1), w = x1 - x0, mx = (x0 + x1) / 2;
+  ctx.save();
+  if (kind === 'rocher' || kind === 'eboulis') {
+    const c1 = kind === 'rocher' ? '#7d7a76' : '#b5643f', c2 = kind === 'rocher' ? '#a9a49c' : '#d98a5c';
+    ctx.fillStyle = c1; ctx.beginPath(); ctx.moveTo(x0, base);
+    const n = 6; for (let i = 0; i <= n; i++) { const u = i / n; ctx.lineTo(x0 + u * w, top + (1 - Math.sin(u * PI)) * (base - top) * 0.35 + hash(ev.x0 * 10 + i) * S * 0.12); }
+    ctx.lineTo(x1, base); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = c2; ctx.beginPath(); ctx.moveTo(x0 + w * 0.15, top + (base - top) * 0.2); ctx.lineTo(mx, top + 3); ctx.lineTo(x0 + w * 0.6, top + (base - top) * 0.45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(90,140,70,.6)'; ctx.beginPath(); ctx.ellipse(mx - w * 0.1, top + 5, w * 0.2, 4, 0, 0, 2 * PI); ctx.fill();
+  } else if (kind === 'tronc') {
+    const h = base - top;
+    ctx.fillStyle = '#6b4a32'; ctx.beginPath(); ctx.moveTo(x0, base); ctx.lineTo(x0 + w * 0.1, top + h * 0.1); ctx.lineTo(x1 - w * 0.1, top); ctx.lineTo(x1, base); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,25,15,.5)'; ctx.lineWidth = 2; for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(x0 + w * i / 4, base); ctx.lineTo(x0 + w * i / 4 + 4, top + h * 0.15); ctx.stroke(); }
+    ctx.fillStyle = '#c9a477'; ctx.beginPath(); ctx.ellipse(x1 - w * 0.08, top + h * 0.5, w * 0.08, h * 0.45, 0, 0, 2 * PI); ctx.fill();
+  } else if (kind === 'croco') {
+    const h = base - top;
+    ctx.fillStyle = '#d6c08a'; ctx.beginPath(); ctx.ellipse(mx, base, w * 0.6, h * 0.55, 0, PI, 2 * PI); ctx.fill();   // banc de sable
+    const cy = top + h * 0.18, eye = Math.abs(mx - W * 0.3) < S * 2.5;
+    ctx.fillStyle = '#4c7a3a'; ctx.beginPath(); ctx.ellipse(mx, cy + S * 0.12, w * 0.45, S * 0.18, 0, 0, 2 * PI); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x0 + w * 0.05, cy + S * 0.1); ctx.lineTo(mx - w * 0.3, cy + S * 0.02); ctx.lineTo(mx - w * 0.3, cy + S * 0.22); ctx.fill();
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(mx - w * 0.25 + i * w * 0.12, cy); ctx.lineTo(mx - w * 0.2 + i * w * 0.12, cy - S * 0.08); ctx.lineTo(mx - w * 0.15 + i * w * 0.12, cy); ctx.fill(); }
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mx - w * 0.3, cy, S * 0.07, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.beginPath(); eye ? ctx.arc(mx - w * 0.31, cy, S * 0.035, 0, 2 * PI) : ctx.rect(mx - w * 0.36, cy - 1, S * 0.12, 2); ctx.fill();
+  } else if (kind === 'iceberg') {
+    ctx.fillStyle = '#e8f6ff'; ctx.beginPath(); ctx.moveTo(x0, base); ctx.lineTo(x0 + w * 0.1, top + (base - top) * 0.3); ctx.lineTo(x0 + w * 0.4, top); ctx.lineTo(x0 + w * 0.7, top + (base - top) * 0.15); ctx.lineTo(x1, base); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#b6dcf2'; ctx.beginPath(); ctx.moveTo(x0 + w * 0.4, top); ctx.lineTo(x0 + w * 0.7, top + (base - top) * 0.15); ctx.lineTo(x1, base); ctx.lineTo(x0 + w * 0.5, base); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawHaut(ev, kind, x0, x1) {
+  const bot = SY(LY[ev.hi] + BOAT_TOP + CLEAR), top = SY(4.55), w = x1 - x0, mx = (x0 + x1) / 2;
+  ctx.save();
+  if (kind === 'pont' || kind === 'ponton') {
+    const wood = kind === 'pont' ? ['#9a6a40', '#c08a55'] : ['#6f5a3a', '#94794e'];
+    // poteaux sur la rive d'en face, derrière l'eau
+    ctx.fillStyle = mix(wood[0], '#000', 0.25); ctx.fillRect(x0 + 2, bot, S * 0.14, top - bot + S * 0.2); ctx.fillRect(x1 - 2 - S * 0.14, bot, S * 0.14, top - bot + S * 0.2);
+    ctx.fillStyle = wood[0]; ctx.fillRect(x0 - S * 0.15, bot - S * 0.32, w + S * 0.3, S * 0.32);
+    ctx.fillStyle = wood[1]; for (let i = 0; i < w / (S * 0.25); i++) ctx.fillRect(x0 - S * 0.15 + i * S * 0.25, bot - S * 0.3, S * 0.2, S * 0.08);
+    ctx.fillStyle = wood[0]; ctx.fillRect(x0 - S * 0.15, bot - S * 0.75, S * 0.08, S * 0.45); ctx.fillRect(x1 + S * 0.07, bot - S * 0.75, S * 0.08, S * 0.45); ctx.fillRect(x0 - S * 0.15, bot - S * 0.75, w + S * 0.3, S * 0.06);
+    if (kind === 'ponton') { ctx.fillStyle = 'rgba(255,240,150,.9)'; ctx.beginPath(); ctx.arc(mx, bot - S * 0.85, S * 0.08, 0, 2 * PI); ctx.fill(); }
+  } else if (kind === 'branches') {
+    ctx.fillStyle = '#3d5a35'; ctx.fillRect(x0 - S * 0.3, top - S * 0.1, w + S * 0.6, S * 0.3);
+    ctx.strokeStyle = '#5a3f2a'; ctx.lineWidth = S * 0.12; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0 - S * 0.4, top); ctx.quadraticCurveTo(mx, top + S * 0.1, x1 + S * 0.3, bot - S * 0.2); ctx.stroke();
+    ctx.fillStyle = '#3f7a3c';
+    for (let i = 0; i < 9; i++) { const u = i / 8, px = x0 + u * w, py = lerp(top, bot, 0.4 + 0.6 * Math.sin(u * PI)); ctx.beginPath(); ctx.ellipse(px, py, S * 0.22, S * 0.14, u, 0, 2 * PI); ctx.fill(); }
+    ctx.strokeStyle = '#4c7a3a'; ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) { const px = x0 + (i + 0.5) * w / 6; ctx.beginPath(); ctx.moveTo(px, top + S * 0.1); ctx.quadraticCurveTo(px + Math.sin(clock + i) * 5, (top + bot) / 2, px, bot); ctx.stroke(); }
+  } else if (kind === 'arche' || kind === 'arcglace') {
+    const c1 = kind === 'arche' ? '#a9553a' : '#cfe8f7', c2 = kind === 'arche' ? '#d4835a' : '#f3fbff';
+    ctx.fillStyle = c1; ctx.beginPath(); ctx.moveTo(x0 - S * 0.5, top); ctx.lineTo(x1 + S * 0.5, top); ctx.lineTo(x1 + S * 0.5, bot - S * 0.1);
+    ctx.quadraticCurveTo(mx, bot - S * 0.05, x0 - S * 0.5, bot - S * 0.1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = c2; ctx.fillRect(x0 - S * 0.5, top, w + S, S * 0.15);
+    ctx.fillStyle = c1; ctx.beginPath(); ctx.moveTo(x0, bot); ctx.lineTo(x1, bot); ctx.lineTo(mx, bot + S * 0.25); ctx.fill();
+    // texture : briques dans les gorges, glace fissurée et brillante dans le fjord
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 - S * 0.5, top, w + S, bot - top); ctx.clip();
+    if (kind === 'arche') {
+      ctx.strokeStyle = 'rgba(90,35,20,.35)'; ctx.lineWidth = 1.5;
+      for (let r = 0, y = top + S * 0.15; y < bot; y += S * 0.22, r++) {
+        ctx.beginPath(); ctx.moveTo(x0 - S * 0.5, y); ctx.lineTo(x1 + S * 0.5, y); ctx.stroke();
+        for (let xx = x0 - S * 0.5 + (r % 2) * S * 0.2; xx < x1 + S * 0.5; xx += S * 0.4) { ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx, y + S * 0.22); ctx.stroke(); }
+      }
+    } else {
+      const gi = ctx.createLinearGradient(x0, top, x1, bot); gi.addColorStop(0, 'rgba(255,255,255,.55)'); gi.addColorStop(0.5, 'rgba(160,210,240,.15)'); gi.addColorStop(1, 'rgba(255,255,255,.4)');
+      ctx.fillStyle = gi; ctx.fillRect(x0 - S * 0.5, top, w + S, bot - top);
+      ctx.strokeStyle = 'rgba(120,170,210,.7)'; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 3; i++) { const sx0 = x0 + w * (0.2 + 0.3 * i); ctx.beginPath(); ctx.moveTo(sx0, top + S * 0.2); ctx.lineTo(sx0 + S * 0.15, top + (bot - top) * 0.45); ctx.lineTo(sx0 - S * 0.05, bot - S * 0.1); ctx.stroke(); }
+    }
+    ctx.restore();
+    if (kind === 'arcglace') { ctx.fillStyle = '#e6f6ff'; for (let i = 0; i < 5; i++) { const px = x0 + (i + 0.5) * w / 5; ctx.beginPath(); ctx.moveTo(px - 4, bot); ctx.lineTo(px, bot + S * (0.15 + 0.15 * hash(i + ev.x0))); ctx.lineTo(px + 4, bot); ctx.fill(); } }
+    else { ctx.fillStyle = '#6b8f3a'; for (let i = 0; i < 6; i++) { const px = x0 - S * 0.4 + i * (w + S * 0.8) / 5; ctx.beginPath(); ctx.ellipse(px, top + 2, S * 0.18, S * 0.07, 0, PI, 2 * PI); ctx.fill(); } }
+  } else if (kind === 'mouettes') {
+    for (let i = 0; i < 4; i++) {
+      const px = x0 + (i + 0.5) * w / 4, py = bot - S * 0.2 - Math.sin(clock * 3 + i) * S * 0.15 - (i % 2) * S * 0.25, f = Math.sin(clock * 12 + i * 2) * 0.5 + 0.5;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(px, py, S * 0.15, S * 0.07, 0, 0, 2 * PI); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = S * 0.05; ctx.beginPath(); ctx.moveTo(px - S * 0.3, py - S * 0.12 * f); ctx.quadraticCurveTo(px - S * 0.12, py - S * 0.2, px, py); ctx.quadraticCurveTo(px + S * 0.12, py - S * 0.2, px + S * 0.3, py - S * 0.12 * f); ctx.stroke();
+      ctx.fillStyle = '#ffb02e'; ctx.beginPath(); ctx.moveTo(px + S * 0.14, py); ctx.lineTo(px + S * 0.24, py + S * 0.02); ctx.lineTo(px + S * 0.14, py + S * 0.04); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([4, 6]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0, bot); ctx.lineTo(x1, bot); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+function drawEcluse(ev, x0, x1) {
+  // écluse : deux piliers de pierre, la porte ne laisse passer qu'à un seul niveau (repère doré)
+  for (const px of [x0 - S * 0.22, x1]) {
+    const g = ctx.createLinearGradient(px, 0, px + S * 0.22, 0); g.addColorStop(0, '#4e5763'); g.addColorStop(1, '#7c8794');
+    ctx.fillStyle = g; ctx.fillRect(px, SY(4.55), S * 0.22, SY(0.1) - SY(4.55));
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; for (let y = SY(4.5); y < SY(0.2); y += S * 0.3) ctx.fillRect(px, y, S * 0.22, 1.5);
+  }
+  ctx.fillStyle = '#ffcf4a'; ctx.beginPath(); ctx.arc(x0 - S * 0.12, SY(LY[ev.lo]) , S * 0.08, 0, 2 * PI); ctx.fill();
+}
+function drawPearls(cx) {
+  for (const p of lv.pearls) {
+    if (p.pris) continue;
+    const px = SX(p.x, cx), py = SY(LY[p.k] + 0.55) + Math.sin(clock * 3 + p.x) * 3;
+    if (px < -20 || px > W + 20) continue;
+    const g = ctx.createRadialGradient(px - 3, py - 3, 1, px, py, S * 0.16);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#f4e9ff'); g.addColorStop(1, '#c8b6e8');
+    ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(px, py, S * 0.26, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, S * 0.14, 0, 2 * PI); ctx.fill();
+  }
+  if (lv.endless) for (const h of lv.hearts) {
+    if (h.pris) continue;
+    const px = SX(h.x, cx), py = SY(LY[h.k] + 0.65) + Math.sin(clock * 3) * 4, r = S * 0.2;
+    ctx.fillStyle = 'rgba(255,90,120,.3)'; ctx.beginPath(); ctx.arc(px, py, r * 2, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#ff5d73'; ctx.beginPath(); ctx.moveTo(px, py + r); ctx.bezierCurveTo(px - r * 1.6, py - r * 0.3, px - r * 0.6, py - r * 1.4, px, py - r * 0.5); ctx.bezierCurveTo(px + r * 0.6, py - r * 1.4, px + r * 1.6, py - r * 0.3, px, py + r); ctx.fill();
+  }
+}
+
+// ---- le bateau de la capitaine Lou (une loutre)
+function drawBoat(px, sy, t, hurt) {
+  const s = S;
+  ctx.save(); ctx.translate(px, sy + Math.sin(t * 3) * 2); ctx.rotate(tilt * 0.6 + Math.sin(t * 2.1) * 0.03);
+  if (hurt > 0 && Math.floor(t * 14) % 2 === 0) ctx.globalAlpha = 0.45;
+  // mât et drapeau
+  ctx.fillStyle = '#6b4a32'; ctx.fillRect(s * 0.08, -s * 1.15, s * 0.05, s * 0.95);
+  ctx.fillStyle = '#ff7a59'; ctx.beginPath(); ctx.moveTo(s * 0.13, -s * 1.12); ctx.quadraticCurveTo(s * 0.4, -s * 1.08 + Math.sin(t * 8) * 3, s * 0.48, -s * 1.0); ctx.lineTo(s * 0.13, -s * 0.9); ctx.fill();
+  // cabine
+  ctx.fillStyle = '#f4efe6'; ctx.fillRect(-s * 0.48, -s * 0.62, s * 0.42, s * 0.42);
+  ctx.fillStyle = '#2a8fc9'; ctx.fillRect(-s * 0.52, -s * 0.7, s * 0.5, s * 0.1);
+  ctx.fillStyle = '#9fd8ff'; ctx.beginPath(); ctx.arc(-s * 0.27, -s * 0.42, s * 0.09, 0, 2 * PI); ctx.fill();
+  ctx.strokeStyle = '#d4a63a'; ctx.lineWidth = 2; ctx.stroke();
+  // loutre capitaine
+  ctx.fillStyle = '#8a5a3b'; ctx.beginPath(); ctx.ellipse(s * 0.32, -s * 0.36, s * 0.17, s * 0.2, 0, 0, 2 * PI); ctx.fill();
+  ctx.beginPath(); ctx.arc(s * 0.36, -s * 0.66, s * 0.19, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#e9cfa8'; ctx.beginPath(); ctx.ellipse(s * 0.42, -s * 0.6, s * 0.12, s * 0.1, 0, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#8a5a3b'; ctx.beginPath(); ctx.arc(s * 0.22, -s * 0.8, s * 0.05, 0, 2 * PI); ctx.arc(s * 0.48, -s * 0.8, s * 0.05, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#1e1a1a'; ctx.beginPath(); ctx.arc(s * 0.43, -s * 0.69, s * 0.028, 0, 2 * PI); ctx.arc(s * 0.31, -s * 0.69, s * 0.028, 0, 2 * PI); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s * 0.47, -s * 0.62, s * 0.035, s * 0.025, 0, 0, 2 * PI); ctx.fill();
+  ctx.strokeStyle = 'rgba(30,26,26,.6)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(s * 0.5, -s * 0.6); ctx.lineTo(s * 0.62, -s * 0.63); ctx.moveTo(s * 0.5, -s * 0.58); ctx.lineTo(s * 0.62, -s * 0.56); ctx.stroke();
+  // casquette de capitaine
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(s * 0.36, -s * 0.84, s * 0.2, s * 0.08, 0, PI, 2 * PI); ctx.fill(); ctx.fillRect(s * 0.17, -s * 0.85, s * 0.38, s * 0.05);
+  ctx.fillStyle = '#17405f'; ctx.fillRect(s * 0.17, -s * 0.82, s * 0.38, s * 0.04); ctx.fillRect(s * 0.42, -s * 0.8, s * 0.2, s * 0.03);
+  ctx.fillStyle = '#ffcf4a'; ctx.beginPath(); ctx.arc(s * 0.36, -s * 0.88, s * 0.03, 0, 2 * PI); ctx.fill();
+  // patte qui salue pendant les grandes séries
+  if (serie >= 10) { ctx.strokeStyle = '#8a5a3b'; ctx.lineWidth = s * 0.07; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(s * 0.42, -s * 0.38); ctx.lineTo(s * 0.62, -s * 0.62 - Math.sin(t * 10) * s * 0.06); ctx.stroke(); }
+  // coque
+  const hull = ctx.createLinearGradient(0, -s * 0.25, 0, s * 0.45);
+  hull.addColorStop(0, '#ff7a59'); hull.addColorStop(0.55, '#e85a3c'); hull.addColorStop(1, '#a63a24');
+  ctx.fillStyle = hull; ctx.beginPath(); ctx.moveTo(-s * 0.8, -s * 0.22); ctx.lineTo(s * 0.85, -s * 0.22); ctx.quadraticCurveTo(s * 0.7, s * 0.42, s * 0.2, s * 0.45); ctx.lineTo(-s * 0.45, s * 0.45); ctx.quadraticCurveTo(-s * 0.75, s * 0.3, -s * 0.8, -s * 0.22); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(-s * 0.78, -s * 0.22, s * 1.62, s * 0.09);
+  ctx.fillStyle = '#ffcf4a'; ctx.fillRect(-s * 0.7, s * 0.02, s * 1.35, s * 0.05);
+  ctx.restore();
+}
+
+function drawParticles(cx) {
+  for (const p of particles) {
+    if (p.kind === 'conf') {
+      ctx.save(); ctx.translate(p.sx, p.sy); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.life);
+      ctx.fillStyle = p.col; ctx.fillRect(-p.sz / 2, -p.sz / 4, p.sz, p.sz / 2); ctx.restore(); continue;
+    }
+    const px = SX(p.x, cx), py = SY(p.y);
+    ctx.fillStyle = p.kind === 'eclat' ? `rgba(160,110,70,${p.life})` : p.kind === 'brille' ? `rgba(255,240,180,${p.life * 1.4})` : `rgba(255,255,255,${0.7 * p.life})`;
+    ctx.beginPath(); ctx.arc(px, py, p.r * S, 0, 2 * PI); ctx.fill();
+  }
+  ctx.textAlign = 'center';
+  for (const t of textes) {
+    ctx.globalAlpha = Math.min(1, t.life * 1.5); ctx.font = `800 ${t.big ? 30 : 20}px "Baloo 2", sans-serif`;
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(14,42,68,.7)'; ctx.strokeText(t.t, t.sx, t.sy); ctx.fillStyle = t.col; ctx.fillText(t.t, t.sx, t.sy);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Lueur sur les bords de l'écran selon la série : plus la série est longue, plus elle est vive.
+function drawStreakGlow() {
+  const tr = tier(serie); if (!tr || (mode !== 'jeu' && mode !== 'lac')) return;
+  const col = TIER_COL[tr], a = (0.1 + 0.1 * tr) * (0.75 + 0.25 * Math.sin(clock * (2 + tr)));
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  g.addColorStop(0, alpha(col, 0)); g.addColorStop(1, alpha(col, a));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+// Repères tactiles discrets : moitié haute = monter, moitié basse = baisser.
+function drawControls() {
+  if (mode !== 'jeu' && mode !== 'pret') return;
+  ctx.fillStyle = 'rgba(255,255,255,.22)'; const x = W - 26;
+  ctx.beginPath(); ctx.moveTo(x - 10, H * 0.3 + 8); ctx.lineTo(x, H * 0.3 - 6); ctx.lineTo(x + 10, H * 0.3 + 8); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - 10, H * 0.88 - 8); ctx.lineTo(x, H * 0.88 + 6); ctx.lineTo(x + 10, H * 0.88 - 8); ctx.fill();
+}
+
+function renderJeu() {
+  const P = pal(), cx = camX();
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * 14 * shake, (Math.random() - 0.5) * 14 * shake);
+  drawSky(P, cx); drawDecor(P, cx); drawWaterBack(P, cx);
+  for (const ev of lv.events) if (ev.lo > 0) drawBas(ev, VISUELS[ev.w][0], SX(ev.x0, cx), SX(ev.x1, cx));
+  drawPearls(cx);
+  if (!lv.endless) drawArrivee(cx);
+  drawBoat(W * 0.3, SY(wy) - S * 0.02, clock, invul);
+  drawWaterFront(P);
+  for (const ev of lv.events) { const x0 = SX(ev.x0, cx), x1 = SX(ev.x1, cx); if (x1 < -S * 2 || x0 > W + S * 2) continue; if (ev.hi < 4) drawHaut(ev, ev.bird ? 'mouettes' : VISUELS[ev.w][1], x0, x1); if (ev.kind === 'ecluse') drawEcluse(ev, x0, x1); }
+  if (lv.endless && save.fleuve.m > 0) drawRecord(cx);
+  drawParticles(cx);
+  ctx.restore();
+  drawStreakGlow(); drawControls();
+}
+function drawArrivee(cx) {
+  const px = SX(lv.L, cx); if (px > W + 40) return;
+  ctx.fillStyle = '#7a5a3c'; ctx.fillRect(px, SY(4.4), S * 0.12, SY(0.1) - SY(4.4));
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (i + j) % 2 ? '#ffffff' : '#17405f'; ctx.fillRect(px + S * 0.12 + j * S * 0.25, SY(4.4) + i * S * 0.12, S * 0.25, S * 0.12); }
+  ctx.fillStyle = '#ffcf4a'; ctx.font = `800 ${Math.round(S * 0.3)}px "Baloo 2", sans-serif`; ctx.textAlign = 'left'; ctx.fillText('Arrivée', px + S * 0.7, SY(4.45));
+}
+function drawRecord(cx) {
+  const px = SX(save.fleuve.m, cx); if (px < -60 || px > W + 60) return;
+  ctx.strokeStyle = '#17405f'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(px, SY(3.7)); ctx.lineTo(px, SY(5.6)); ctx.stroke();
+  ctx.fillStyle = bx > save.fleuve.m ? '#9fb0bf' : '#ffcf4a'; ctx.beginPath(); ctx.moveTo(px, SY(5.6)); ctx.lineTo(px + S * 1.1, SY(5.4) + Math.sin(clock * 4) * 3); ctx.lineTo(px, SY(5.1)); ctx.fill();
+  ctx.fillStyle = '#17405f'; ctx.font = `800 ${Math.round(S * 0.22)}px "Baloo 2", sans-serif`; ctx.textAlign = 'left'; ctx.fillText('Record', px + 4, SY(5.32));
+}
+
+// =====================================================================  carte du monde
+const MW = 1000, BH = 1550, MTOP = 520, MBOT = 380, MH = MTOP + 5 * BH + MBOT;
+let NODES = [], LACS = [];
+function buildCarte() {
+  NODES = []; LACS = [];
+  const r = rng32(2024);
+  for (let w = 0; w < 5; w++) {
+    const yb = MH - MBOT - w * BH;   // bas de la bande du monde
+    for (let i = 0; i < 10; i++) {
+      const y = yb - 120 - i * (BH - 220) / 9;
+      const x = 500 + 250 * Math.sin(i * 0.85 + w * 1.9) + (r() - 0.5) * 60;
+      NODES.push({ x, y, w, i, idx: w * 10 + i });
+    }
+    const n4 = NODES[w * 10 + 4], side = n4.x > 500 ? -1 : 1;
+    LACS.push({ x: clamp(n4.x + side * 300, 150, 850), y: n4.y - 40, w, from: n4 });
+  }
+}
+const CARTE_COL = [
+  { sol: ['#8fd16a', '#6fb556'], deco: 'pres' },
+  { sol: ['#4f9a5a', '#3a7b48'], deco: 'foret' },
+  { sol: ['#93a35c', '#76854a'], deco: 'marais' },
+  { sol: ['#e09a62', '#c4764a'], deco: 'gorges' },
+  { sol: ['#e9f3fa', '#cddff0'], deco: 'fjord' },
+];
+let carteScale = 1;
+function carteToScreen(x, y) { return [x * carteScale, (y - carteY) * carteScale]; }
+function clampCarte() { const maxY = MH - H / carteScale; carteY = clamp(carteY, 0, Math.max(0, maxY)); }
+function focusCarte(idx) { carteScale = W / MW; const n = NODES[idx]; carteY = n.y - (H / carteScale) * 0.55; clampCarte(); }
+function cotePath(side, w) {   // côte irrégulière de la bande w
+  const pts = [], yb = MH - MBOT - w * BH, yt = yb - BH;
+  for (let i = 0; i <= 24; i++) { const y = yb - i * BH / 24, n = Math.sin(y * 0.011 + w) * 30 + Math.sin(y * 0.031 + w * 3) * 14; pts.push([side < 0 ? 70 + n : 930 - n, y]); }
+  return [pts, yb, yt];
+}
+function riverPts() {
+  const pts = [[500, MH - 60]];
+  for (const n of NODES) pts.push([n.x, n.y]);
+  pts.push([NODES[49].x, MTOP - 80], [520, 120]);
+  return pts;
+}
+function strokeSmooth(pts) {
+  ctx.beginPath(); const p0 = carteToScreen(...pts[0]); ctx.moveTo(p0[0], p0[1]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = carteToScreen(...pts[i]), b = carteToScreen(...pts[i + 1]);
+    ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  }
+  const l = carteToScreen(...pts[pts.length - 1]); ctx.lineTo(l[0], l[1]);
+}
+function decoCarte(kind, x, y, s, seed) {
+  const [px, py] = carteToScreen(x, y); s *= carteScale;
+  if (py < -60 || py > H + 60) return;
+  if (kind === 'pres') {
+    const v = hash(seed);
+    if (v < 0.45) { ctx.fillStyle = '#3f8a3a'; ctx.beginPath(); ctx.arc(px, py - s * 0.6, s * 0.45, 0, 2 * PI); ctx.fill(); ctx.fillStyle = '#5aa94c'; ctx.beginPath(); ctx.arc(px - s * 0.12, py - s * 0.72, s * 0.25, 0, 2 * PI); ctx.fill(); ctx.fillStyle = '#6b4a32'; ctx.fillRect(px - s * 0.06, py - s * 0.2, s * 0.12, s * 0.25); }
+    else if (v < 0.7) { ctx.fillStyle = '#f4efe6'; ctx.fillRect(px - s * 0.4, py - s * 0.5, s * 0.8, s * 0.5); ctx.fillStyle = '#e85a3c'; ctx.beginPath(); ctx.moveTo(px - s * 0.5, py - s * 0.5); ctx.lineTo(px, py - s); ctx.lineTo(px + s * 0.5, py - s * 0.5); ctx.fill(); ctx.fillStyle = '#6b4a32'; ctx.fillRect(px - s * 0.1, py - s * 0.28, s * 0.2, s * 0.28); }
+    else if (v < 0.8) { ctx.fillStyle = '#f4efe6'; ctx.fillRect(px - s * 0.18, py - s * 1.1, s * 0.36, s * 1.1); ctx.strokeStyle = '#6b4a32'; ctx.lineWidth = Math.max(1, s * 0.08); const a = clock; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(px, py - s * 1.05); ctx.lineTo(px + Math.cos(a + k * PI / 2) * s * 0.7, py - s * 1.05 + Math.sin(a + k * PI / 2) * s * 0.7); ctx.stroke(); } }
+    else { ctx.fillStyle = ['#ffe07a', '#ff9fb2', '#ffffff'][Math.floor(hash(seed + 1) * 3)]; for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.arc(px + (hash(seed + k) - 0.5) * s * 1.6, py + (hash(seed + k + 9) - 0.5) * s * 0.8, s * 0.09, 0, 2 * PI); ctx.fill(); } }
+  } else if (kind === 'foret') {
+    for (let k = 0; k < 3; k++) { const ox = (k - 1) * s * 0.45, h = s * (1 + 0.3 * hash(seed + k)); ctx.fillStyle = k % 2 ? '#2f5d3a' : '#264d31'; ctx.beginPath(); ctx.moveTo(px + ox - h * 0.35, py); ctx.lineTo(px + ox, py - h * 1.2); ctx.lineTo(px + ox + h * 0.35, py); ctx.fill(); }
+  } else if (kind === 'marais') {
+    const v = hash(seed);
+    if (v < 0.5) { ctx.fillStyle = '#5c8f7a'; ctx.beginPath(); ctx.ellipse(px, py, s * 0.8, s * 0.35, 0, 0, 2 * PI); ctx.fill(); ctx.fillStyle = '#7fc06a'; ctx.beginPath(); ctx.arc(px - s * 0.3, py, s * 0.14, 0.3, 2 * PI - 0.3); ctx.fill(); ctx.beginPath(); ctx.arc(px + s * 0.25, py + s * 0.05, s * 0.11, 0.3, 2 * PI - 0.3); ctx.fill(); }
+    else { ctx.strokeStyle = '#4f6b32'; ctx.lineWidth = Math.max(1, s * 0.06); for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.moveTo(px + (k - 2) * s * 0.12, py); ctx.lineTo(px + (k - 2) * s * 0.16, py - s * (0.6 + 0.3 * hash(seed + k))); ctx.stroke(); } ctx.fillStyle = '#6b4a32'; ctx.fillRect(px + s * 0.1, py - s * 0.85, s * 0.07, s * 0.2); }
+  } else if (kind === 'gorges') {
+    const v = hash(seed);
+    if (v < 0.6) { const h = s * (0.8 + 0.6 * hash(seed + 2)); [['#9d4f34', 1], ['#c06a42', 0.75], ['#d98a5c', 0.5]].forEach(([c, f], k) => { ctx.fillStyle = c; ctx.fillRect(px - s * 0.7 * f, py - h * (1 - k * 0.0) * f, s * 1.4 * f, h * f); }); }
+    else { ctx.fillStyle = '#3f8a4a'; ctx.fillRect(px - s * 0.06, py - s * 0.7, s * 0.12, s * 0.7); ctx.fillRect(px - s * 0.3, py - s * 0.45, s * 0.24, s * 0.08); ctx.fillRect(px - s * 0.3, py - s * 0.62, s * 0.08, s * 0.2); }
+  } else if (kind === 'fjord') {
+    const v = hash(seed);
+    if (v < 0.5) { const h = s * 1.3; ctx.fillStyle = '#9fb6cc'; ctx.beginPath(); ctx.moveTo(px - h * 0.6, py); ctx.lineTo(px, py - h); ctx.lineTo(px + h * 0.6, py); ctx.fill(); ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(px - h * 0.22, py - h * 0.62); ctx.lineTo(px, py - h); ctx.lineTo(px + h * 0.22, py - h * 0.62); ctx.fill(); }
+    else if (v < 0.75) { ctx.fillStyle = '#2f5d4a'; ctx.beginPath(); ctx.moveTo(px - s * 0.3, py); ctx.lineTo(px, py - s); ctx.lineTo(px + s * 0.3, py); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(px - s * 0.12, py - s * 0.6); ctx.lineTo(px, py - s); ctx.lineTo(px + s * 0.12, py - s * 0.6); ctx.fill(); }
+    else { ctx.fillStyle = '#f4fbff'; ctx.beginPath(); ctx.arc(px, py, s * 0.5, PI, 2 * PI); ctx.fill(); ctx.fillStyle = '#9fb6cc'; ctx.beginPath(); ctx.arc(px, py, s * 0.18, PI, 2 * PI); ctx.fill(); }
+  }
+}
+function renderCarte() {
+  carteScale = W / MW;
+  // océan
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1f6fa8'); g.addColorStop(1, '#0f4a78');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 40; i++) { const y = ((i * 150 - carteY * carteScale * 0.6) % (H + 150) + H + 150) % (H + 150) - 50, x = hash(i) * W; ctx.beginPath(); ctx.arc(x, y, 10, PI * 1.1, PI * 1.9); ctx.arc(x + 18, y, 10, PI * 1.1, PI * 1.9); ctx.stroke(); }
+  // terres, une bande par monde
+  for (let w = 0; w < 5; w++) {
+    const [L] = cotePath(-1, w), [R, yb, yt] = cotePath(1, w);
+    const [, sb] = carteToScreen(0, yb), [, st] = carteToScreen(0, yt);
+    if (sb < -50 || st > H + 50) continue;
+    const C = CARTE_COL[w];
+    ctx.beginPath(); L.forEach((p, i) => { const s = carteToScreen(...p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+    [...R].reverse().forEach((p) => { const s = carteToScreen(...p); ctx.lineTo(s[0], s[1]); }); ctx.closePath();
+    const lg = ctx.createLinearGradient(0, sb, 0, st); lg.addColorStop(0, C.sol[0]); lg.addColorStop(1, C.sol[1]);
+    ctx.fillStyle = lg; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 4 * carteScale + 1.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 14 * carteScale; ctx.stroke();
+    // décor du biome
+    const rr = rng32(500 + w);
+    for (let k = 0; k < 46; k++) {
+      const x = 130 + rr() * 740, y = yb - 40 - rr() * (BH - 80);
+      const near = NODES.some((n) => Math.hypot(n.x - x, n.y - y) < 95) || LACS.some((l) => Math.hypot(l.x - x, l.y - y) < 120);
+      if (near) continue;
+      decoCarte(C.deco, x, y, 34 + rr() * 16, w * 100 + k);
+    }
+  }
+  // lacs et leurs ruisseaux
+  for (const l of LACS) {
+    const [ax, ay] = carteToScreen(l.from.x, l.from.y), [lx, ly] = carteToScreen(l.x, l.y);
+    if (ly < -120 || ly > H + 120) continue;
+    ctx.strokeStyle = '#3a9bd6'; ctx.lineWidth = 12 * carteScale + 2; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + lx) / 2, ay - 40 * carteScale, lx, ly); ctx.stroke();
+    ctx.fillStyle = '#2f8fd0'; ctx.beginPath(); ctx.ellipse(lx, ly, 95 * carteScale, 60 * carteScale, 0.2, 0, 2 * PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.ellipse(lx - 20 * carteScale, ly - 15 * carteScale, 40 * carteScale, 12 * carteScale, 0.2, 0, 2 * PI); ctx.fill();
+    // poisson
+    const ok = lacOuvert(l.w);
+    ctx.fillStyle = ok ? '#ffcf4a' : 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.ellipse(lx, ly, 18 * carteScale + 4, 9 * carteScale + 2, 0, 0, 2 * PI); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(lx - 16 * carteScale - 3, ly); ctx.lineTo(lx - 30 * carteScale - 5, ly - 10 * carteScale - 2); ctx.lineTo(lx - 30 * carteScale - 5, ly + 10 * carteScale + 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(13 + 10 * carteScale)}px "Baloo 2", sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText(MONDES[l.w].lac, lx, ly + 62 * carteScale + 14);
+    if (ok && save.lacsEtoiles[l.w]) { ctx.fillStyle = '#ffcf4a'; ctx.fillText('★'.repeat(save.lacsEtoiles[l.w]), lx, ly + 62 * carteScale + 30); }
+  }
+  // la rivière : conquise (bleu vif, scintillante) jusqu'au dernier niveau ouvert
+  const pts = riverPts();
+  let lastOpen = 0; for (let i = 0; i < 50; i++) if (unlocked(i)) lastOpen = i;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  strokeSmooth(pts); ctx.strokeStyle = '#2b6f9e'; ctx.lineWidth = 40 * carteScale + 6; ctx.stroke();
+  strokeSmooth(pts); ctx.strokeStyle = '#7f9fb5'; ctx.lineWidth = 30 * carteScale + 4; ctx.stroke();
+  const conq = pts.slice(0, lastOpen + 2);
+  strokeSmooth(conq); ctx.strokeStyle = '#3fb2ec'; ctx.lineWidth = 30 * carteScale + 4; ctx.stroke();
+  strokeSmooth(conq); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3; ctx.setLineDash([10, 18]); ctx.lineDashOffset = -clock * 30; ctx.stroke(); ctx.setLineDash([]);
+  // ponts sur la rivière entre les mondes
+  // nœuds
+  for (const n of NODES) {
+    const [px, py] = carteToScreen(n.x, n.y); if (py < -60 || py > H + 60) continue;
+    const ok = unlocked(n.idx), st = save.stars[n.idx], courant = n.idx === lastOpen, r = 18 + 8 * carteScale;
+    if (courant) { ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.15 * Math.sin(clock * 4)})`; ctx.beginPath(); ctx.arc(px, py, r * 1.7, 0, 2 * PI); ctx.fill(); }
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.arc(px + 2, py + 3, r, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = !ok ? '#8fa3b4' : st ? '#ffcf4a' : '#ffffff'; ctx.beginPath(); ctx.arc(px, py, r, 0, 2 * PI); ctx.fill();
+    ctx.strokeStyle = n.i === 9 ? '#ff7a59' : '#17405f'; ctx.lineWidth = n.i === 9 ? 4 : 3; ctx.stroke();
+    ctx.fillStyle = '#17405f'; ctx.font = `800 ${Math.round(r * 0.95)}px "Baloo 2", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ok ? String(n.i + 1) : '·', px, py + 1); ctx.textBaseline = 'alphabetic';
+    if (st) { ctx.font = `800 ${Math.round(r * 0.7)}px sans-serif`; ctx.fillStyle = '#ffcf4a'; ctx.strokeStyle = 'rgba(14,42,68,.8)'; ctx.lineWidth = 3; ctx.strokeText('★'.repeat(st), px, py + r + 14); ctx.fillText('★'.repeat(st), px, py + r + 14); }
+  }
+  // bateau sur le nœud courant
+  const cn = NODES[lastOpen], [bxp, byp] = carteToScreen(cn.x, cn.y);
+  ctx.save(); ctx.translate(bxp + 34, byp - 26 + Math.sin(clock * 3) * 3); ctx.scale(0.5, 0.5);
+  const sv = S; S = 40; tilt = 0; drawBoat(0, 0, clock, 0); S = sv; ctx.restore();
+  // bandeaux de mondes + brume sur les mondes fermés
+  for (let w = 0; w < 5; w++) {
+    const yb = MH - MBOT - w * BH, [, sy] = carteToScreen(0, yb - 30);
+    if (!mondeOuvert(w)) {
+      const [, st] = carteToScreen(0, yb - BH), [, sb] = carteToScreen(0, yb);
+      if (sb > -20 && st < H + 20) {
+        ctx.fillStyle = 'rgba(235,242,248,.82)'; ctx.fillRect(0, st, W, sb - st);
+        for (let k = 0; k < 18; k++) { const cxp = hash(k + w * 20) * W, cyp = lerp(st, sb, hash(k + w * 20 + 5)); ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(cxp + Math.sin(clock * 0.3 + k) * 10, cyp, 90 * carteScale + 30, 40 * carteScale + 14, 0, 0, 2 * PI); ctx.fill(); }
+        const my = (st + sb) / 2;
+        ctx.fillStyle = '#17405f'; ctx.fillRect(W / 2 - 14, my - 6, 28, 22); ctx.strokeStyle = '#17405f'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(W / 2, my - 6, 9, PI, 2 * PI); ctx.stroke();
+        ctx.font = `800 20px "Baloo 2", sans-serif`; ctx.textAlign = 'center'; ctx.fillText(`Monde ${w + 1} · ${MONDES[w].nom}`, W / 2, my + 44);
+        ctx.font = `700 14px Nunito, sans-serif`; ctx.fillText(`Termine le monde ${w} pour lever la brume`, W / 2, my + 64);
+      }
+    }
+    if (sy > -40 && sy < H + 40) {
+      const t = `Monde ${w + 1} · ${MONDES[w].nom}`;
+      ctx.font = `800 ${Math.round(14 + 8 * carteScale)}px "Baloo 2", sans-serif`; const tw = ctx.measureText(t).width + 30;
+      ctx.fillStyle = '#ff7a59'; ctx.beginPath(); ctx.roundRect(W / 2 - tw / 2, sy - 16, tw, 30, 15); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(t, W / 2, sy + 5);
+    }
+  }
+  // rose des vents
+  const rx = W - 46, ry = H - 140;
+  ctx.save(); ctx.translate(rx, ry); ctx.fillStyle = 'rgba(255,255,255,.85)';
+  for (let k = 0; k < 4; k++) { ctx.rotate(PI / 2); ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(6, 0); ctx.lineTo(-6, 0); ctx.fill(); }
+  ctx.fillStyle = '#ff7a59'; ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(6, 0); ctx.lineTo(-6, 0); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = '800 12px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('N', 0, -30); ctx.restore();
+}
+function ouvrirCarte(focusIdx) {
+  mode = 'carte'; lv = null; hudVisible(false); screens('ecran-carte'); show('fiche', false); carteSel = null;
+  let lastOpen = 0; for (let i = 0; i < 50; i++) if (unlocked(i)) lastOpen = i;
+  focusCarte(focusIdx ?? lastOpen);
+  $('carte-etoiles').textContent = totalEtoiles(); $('carte-perles').textContent = save.pearls;
+  setTheme(0); setAmb(0.03);
+}
+function choisirNoeud(sel) {
+  carteSel = sel; sfx.clic();
+  if (sel.lac != null) {
+    const w = sel.lac, ok = lacOuvert(w);
+    $('fiche-monde').textContent = `Mini-jeu · monde ${w + 1}`; $('fiche-nom').textContent = MONDES[w].lac;
+    $('fiche-etoiles').innerHTML = '★'.repeat(save.lacsEtoiles[w]) + '<i>' + '★'.repeat(3 - save.lacsEtoiles[w]) + '</i>';
+    $('fiche-info').textContent = ok ? `Pêche le plus de poissons en 40 s. Meilleur score : ${save.lacs[w]}` : `Termine le niveau ${w + 1}-5 pour ouvrir le lac.`;
+    $('b-fiche-jouer').textContent = 'Pêcher'; $('b-fiche-jouer').disabled = !ok;
+  } else {
+    const i = sel.idx, w = Math.floor(i / 10), ok = unlocked(i);
+    $('fiche-monde').textContent = `Monde ${w + 1} · niveau ${i % 10 + 1}`; $('fiche-nom').textContent = MONDES[w].niveaux[i % 10];
+    $('fiche-etoiles').innerHTML = '★'.repeat(save.stars[i]) + '<i>' + '★'.repeat(3 - save.stars[i]) + '</i>';
+    $('fiche-info').textContent = ok ? (save.stars[i] ? 'Rejoue pour décrocher plus d’étoiles.' : 'Un nouveau tronçon de rivière à conquérir.') : 'Termine le niveau précédent pour y accéder.';
+    $('b-fiche-jouer').textContent = 'Larguer les amarres'; $('b-fiche-jouer').disabled = !ok;
+  }
+  show('fiche', false); void $('fiche').offsetWidth; show('fiche', true);
+}
+
+// =====================================================================  mini-jeu : la pêche au lac
+const LAC_DUREE = 40;
+function demarrerLac(w) {
+  lac = { w, t: LAC_DUREE, score: 0, fish: [], spawn: 0, row: 2, ry: 2, stun: 0, r: rng32(Date.now() & 0xffff) };
+  ti = 2; serie = 0; serieMax = 0; particles = []; textes = [];
+  mode = 'lac'; screens(null); show('hud', true); show('progres', false); show('serie', true); majSerie();
+  $('hud-nom').textContent = MONDES[w].lac; $('hud-sub').textContent = `${LAC_DUREE} s`; $('coeurs').textContent = ''; $('perles-n').textContent = '0';
+  const h = $('hint'); h.textContent = 'Monte ou descends l’hameçon. Attrape les poissons, évite les méduses et les vieilles bottes !'; show('hint', true);
+  setTimeout(() => { if (mode === 'lac') show('hint', false); }, 3500);
+  setTheme(6); setAmb(0.05);
+}
+const LAC_ROWS = (k) => H * 0.38 + k * (H * 0.52) / 5 + H * 0.05;
+function updateLac(dt) {
+  const L = lac; L.t -= dt; L.stun = Math.max(0, L.stun - dt);
+  if (L.stun <= 0) L.ry += clamp(ti - L.ry, -dt / STEP_T, dt / STEP_T);
+  L.spawn -= dt;
+  const diff = 1 + L.w * 0.18 + (LAC_DUREE - L.t) / LAC_DUREE * 0.6;
+  if (L.spawn <= 0) {
+    L.spawn = (0.55 + L.r() * 0.6) / diff;
+    const u = L.r(), type = u < 0.07 ? 'or' : u < 0.25 ? 'rare' : u < 0.42 + L.w * 0.03 ? 'meduse' : u < 0.5 + L.w * 0.03 ? 'botte' : 'poisson';
+    const dir = L.r() < 0.5 ? 1 : -1;
+    L.fish.push({ type, row: 4 - Math.floor(L.r() * 5), x: dir > 0 ? -60 : W + 60, dir, v: (90 + L.r() * 80) * diff * (type === 'or' ? 1.7 : type === 'meduse' ? 0.6 : 1), ph: L.r() * 6 });
+  }
+  const hx = W * 0.62, hy = LAC_ROWS(4 - L.ry), rowNow = Math.round(L.ry);
+  for (const f of L.fish) {
+    f.x += f.dir * f.v * dt;
+    if (!f.pris && f.row === 4 - rowNow && Math.abs(f.x - hx) < 26 && Math.abs(L.ry - rowNow) < 0.25) {
+      f.pris = true;
+      if (f.type === 'meduse' || f.type === 'botte') {
+        if (f.type === 'meduse') { L.stun = 0.6; L.score = Math.max(0, L.score - 2); sfx.meduse(); shake = 0.3; flash('rgba(200,120,255,.4)'); }
+        else { sfx.perdue(); }
+        casseSerie(); texte(f.type === 'meduse' ? '−2' : 'Plouf…', hx, hy - 20, '#d9b3ff', true);
+      } else {
+        const base = f.type === 'or' ? 5 : f.type === 'rare' ? 3 : 1, gain = base * mult(serie);
+        L.score += gain; sfx.peche(base); gagneSerie(); texte(`+${gain}`, hx, hy - 20, f.type === 'or' ? '#ffcf4a' : '#fff', f.type === 'or');
+        if (f.type === 'or') { confettis(30, hx, hy); flash('rgba(255,207,74,.4)'); }
+      }
+    }
+  }
+  L.fish = L.fish.filter((f) => !f.pris && f.x > -80 && f.x < W + 80);
+  $('hud-sub').textContent = `${Math.ceil(Math.max(0, L.t))} s`; $('perles-n').textContent = L.score;
+  if (L.t <= 0) finLac();
+}
+function finLac() {
+  const L = lac, seuils = [12 + L.w * 4, 24 + L.w * 6, 38 + L.w * 8];
+  const st = seuils.filter((s) => L.score >= s).length;
+  const rec = L.score > save.lacs[L.w];
+  save.lacs[L.w] = Math.max(save.lacs[L.w], L.score); save.lacsEtoiles[L.w] = Math.max(save.lacsEtoiles[L.w], st);
+  save.pearls += L.score; save.serieMax = Math.max(save.serieMax, serieMax); persist();
+  hudVisible(false); mode = 'fin'; screens('ecran-fin'); setAmb(0.02);
+  $('f-titre').textContent = MONDES[L.w].lac; $('f-score').textContent = `${L.score} pts`;
+  $('f-stats').innerHTML = `<li>${'★'.repeat(st)}${'☆'.repeat(3 - st)} · prochaines étoiles à ${seuils.join(', ')}</li><li>Meilleure série : <b>${serieMax}</b> · perles gagnées : <b>${L.score}</b></li>`;
+  $('f-record').textContent = rec ? 'Nouveau record du lac !' : `Record : ${save.lacs[L.w]} pts`;
+  $('b-fin-encore').onclick = () => demarrerLac(L.w);
+  if (st) { sfx.victoire(); confettis(80); }
+}
+function renderLac() {
+  const L = lac, P = BIOMES[L.w];
+  // ciel et rive
+  const g = ctx.createLinearGradient(0, 0, 0, H * 0.4); g.addColorStop(0, P.ciel[0]); g.addColorStop(1, P.ciel[1]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H * 0.4);
+  ctx.fillStyle = P.loin; ctx.beginPath(); ctx.moveTo(0, H * 0.36); for (let x = 0; x <= W; x += 10) ctx.lineTo(x, H * 0.3 - Math.sin(x * 0.012) * 30 - Math.sin(x * 0.03) * 12); ctx.lineTo(W, H * 0.36); ctx.fill();
+  for (let i = 0; i < 10; i++) petitArbre(i * W / 9, H * 0.36, H * 0.07 * (0.8 + hash(i) * 0.6), P.arbre, P.mid, i);
+  // eau en coupe
+  const ge = ctx.createLinearGradient(0, H * 0.36, 0, H); ge.addColorStop(0, P.eau[0]); ge.addColorStop(1, mix(P.eau[1], '#061a2a', 0.5));
+  ctx.fillStyle = ge; ctx.fillRect(0, H * 0.36, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2.5; ctx.beginPath(); for (let x = 0; x <= W; x += 6) ctx.lineTo(x, H * 0.36 + Math.sin(x * 0.04 + clock * 2) * 3); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.06)'; for (let i = 0; i < 6; i++) { const x = (i * W / 5 + clock * 10) % (W + 100) - 50; ctx.beginPath(); ctx.moveTo(x, H * 0.36); ctx.lineTo(x + 60, H * 0.36); ctx.lineTo(x - 40, H); ctx.lineTo(x - 100, H); ctx.fill(); }
+  // ponton et Lou qui pêche
+  const hx = W * 0.62, hy = LAC_ROWS(4 - L.ry);
+  ctx.fillStyle = '#8a5a3b'; ctx.fillRect(W * 0.35, H * 0.33, W * 0.4, H * 0.025); ctx.fillRect(W * 0.38, H * 0.33, 8, H * 0.08); ctx.fillRect(W * 0.72, H * 0.33, 8, H * 0.08);
+  ctx.save(); ctx.translate(W * 0.45, H * 0.33); ctx.scale(0.8, 0.8);
+  ctx.fillStyle = '#8a5a3b'; ctx.beginPath(); ctx.ellipse(0, -22, 16, 20, 0, 0, 2 * PI); ctx.fill(); ctx.beginPath(); ctx.arc(4, -52, 16, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#e9cfa8'; ctx.beginPath(); ctx.ellipse(10, -48, 10, 8, 0, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#1e1a1a'; ctx.beginPath(); ctx.arc(10, -56, 2.5, 0, 2 * PI); ctx.arc(0, -56, 2.5, 0, 2 * PI); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(4, -68, 17, 7, 0, PI, 2 * PI); ctx.fill(); ctx.fillStyle = '#17405f'; ctx.fillRect(-13, -68, 34, 4);
+  ctx.restore();
+  ctx.strokeStyle = '#6b4a32'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(W * 0.46, H * 0.3); ctx.quadraticCurveTo(W * 0.55, H * 0.2, hx, H * 0.24); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(hx, H * 0.24); ctx.lineTo(hx, hy); ctx.stroke();
+  // rangées
+  for (let k = 0; k < 5; k++) { const y = LAC_ROWS(k); ctx.fillStyle = 4 - k === ti ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.03)'; ctx.fillRect(0, y - 22, W, 44); }
+  // hameçon
+  ctx.strokeStyle = L.stun > 0 ? '#d9b3ff' : '#e8e8e8'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hx, hy + 6, 7, 0, PI); ctx.stroke();
+  ctx.fillStyle = '#ff5d73'; ctx.beginPath(); ctx.arc(hx, hy - 10, 6, 0, 2 * PI); ctx.fill();
+  // poissons
+  for (const f of L.fish) {
+    const y = LAC_ROWS(f.row) + Math.sin(clock * 3 + f.ph) * 4, x = f.x, d = f.dir;
+    ctx.save(); ctx.translate(x, y); ctx.scale(d, 1);
+    if (f.type === 'meduse') {
+      ctx.fillStyle = 'rgba(210,160,255,.85)'; ctx.beginPath(); ctx.arc(0, -4, 16, PI, 2 * PI); ctx.fill();
+      ctx.strokeStyle = 'rgba(210,160,255,.8)'; ctx.lineWidth = 2; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 6, -4); ctx.quadraticCurveTo(i * 6 + Math.sin(clock * 5 + i) * 5, 10, i * 6, 22); ctx.stroke(); }
+    } else if (f.type === 'botte') {
+      ctx.fillStyle = '#5a4a3a'; ctx.fillRect(-8, -18, 14, 26); ctx.fillRect(-8, 2, 26, 10); ctx.fillStyle = '#7a6a5a'; ctx.fillRect(-10, -20, 18, 5);
+    } else {
+      const c = f.type === 'or' ? ['#ffcf4a', '#ffef9a'] : f.type === 'rare' ? ['#ff7aa8', '#ffd0e0'] : ['#ff9a4a', '#ffd3a0'];
+      ctx.fillStyle = c[0]; ctx.beginPath(); ctx.ellipse(0, 0, 22, 12, 0, 0, 2 * PI); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(-34, -12); ctx.lineTo(-34, 12); ctx.fill();
+      ctx.fillStyle = c[1]; ctx.beginPath(); ctx.ellipse(4, 4, 12, 5, 0, 0, 2 * PI); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(12, -3, 4, 0, 2 * PI); ctx.fill(); ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(13, -3, 2, 0, 2 * PI); ctx.fill();
+      if (f.type === 'or') { ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.5 * Math.sin(clock * 10)})`; ctx.beginPath(); ctx.arc(-4, -8, 3, 0, 2 * PI); ctx.fill(); }
+    }
+    ctx.restore();
+  }
+  // bulles
+  ctx.fillStyle = 'rgba(255,255,255,.35)';
+  for (let i = 0; i < 18; i++) { const x = hash(i) * W, y = H - ((clock * 40 * (0.5 + hash(i + 3)) + hash(i + 6) * H) % (H * 0.62)); ctx.beginPath(); ctx.arc(x, y, 2 + 3 * hash(i + 9), 0, 2 * PI); ctx.fill(); }
+  drawParticles(0); drawStreakGlow();
+  // repères de commande
+  ctx.fillStyle = 'rgba(255,255,255,.22)'; const x = W - 26;
+  ctx.beginPath(); ctx.moveTo(x - 10, H * 0.3 + 8); ctx.lineTo(x, H * 0.3 - 6); ctx.lineTo(x + 10, H * 0.3 + 8); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - 10, H * 0.88 - 8); ctx.lineTo(x, H * 0.88 + 6); ctx.lineTo(x + 10, H * 0.88 - 8); ctx.fill();
+}
+
+// =====================================================================  écran titre animé
+function renderTitre() {
+  if (!lv || !lv.demo) { lv = genLevel(0, 3); lv.demo = true; lv.w = Math.floor(clock / 8) % 5; bx = 0; }
+  bx += 1.6 / 60; wy = LY[2] + Math.sin(clock * 0.6) * 0.9; tilt = 0;
+  if (bx > lv.L - 6) bx = 0;
+  renderJeu();
+}
+
+// =====================================================================  boucle
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  update(dt); updateFinAnim(dt);
+  if (mode === 'carte') renderCarte();
+  else if (mode === 'lac' || (mode === 'fin' && lac && !lv)) renderLac();
+  else if (mode === 'titre') renderTitre();
+  else if (lv) renderJeu();
+  requestAnimationFrame(frame);
+}
+
+// =====================================================================  commandes
+function changerNiveau(d) {
+  const n = clamp(ti + d, 0, 4); if (n === ti) return;
+  ti = n; (d > 0 ? sfx.up : sfx.down)(); buzz(8);
+  if (mode === 'jeu') for (let i = 0; i < 6; i++) particles.push({ x: bx + (Math.random() - 0.5) * 1.2, y: wy, vx: (Math.random() - 0.5) * 2, vy: 1 + Math.random() * 2, life: 0.5, r: 0.04 + Math.random() * 0.05, kind: 'goutte', g: 9 });
+}
+let drag = null;
+cv.addEventListener('pointerdown', (ev) => {
+  audioInit();
+  if (mode === 'carte') { drag = { y: ev.clientY, x: ev.clientX, y0: ev.clientY, moved: 0, t: performance.now() }; carteVel = 0; try { cv.setPointerCapture(ev.pointerId); } catch (e) {} return; }
+  if (mode === 'pret') { partir(); return; }
+  if (mode !== 'jeu' && mode !== 'lac') return;
+  changerNiveau(ev.clientY < H / 2 ? 1 : -1);
+  drag = { y: ev.clientY, game: true }; try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  if (mode === 'carte') { const dy = ev.clientY - drag.y; carteY -= dy / carteScale; drag.moved += Math.abs(dy); carteVel = -dy / carteScale / Math.max(0.016, (performance.now() - drag.t) / 1000); drag.t = performance.now(); drag.y = ev.clientY; clampCarte(); return; }
+  if (drag.game) { const step = Math.max(36, H * 0.07), dy = ev.clientY - drag.y; if (Math.abs(dy) >= step) { changerNiveau(dy < 0 ? 1 : -1); drag.y += Math.sign(dy) * step; } }
+});
+cv.addEventListener('pointerup', (ev) => {
+  if (mode === 'carte' && drag && drag.moved < 8) {
+    carteVel = 0;
+    const mx = ev.clientX / carteScale, my = ev.clientY / carteScale + carteY;
+    let best = null, bd = 50 / carteScale + 20;
+    for (const n of NODES) { const d = Math.hypot(n.x - mx, n.y - my); if (d < bd) { bd = d; best = { idx: n.idx }; } }
+    for (const l of LACS) { const d = Math.hypot(l.x - mx, l.y - my); if (d < 110 && d < bd) { bd = d; best = { lac: l.w }; } }
+    if (best) choisirNoeud(best); else show('fiche', false);
+  }
+  drag = null;
+});
+cv.addEventListener('pointercancel', () => { drag = null; });
+cv.addEventListener('wheel', (ev) => { if (mode === 'carte') { carteY += ev.deltaY / carteScale; clampCarte(); } }, { passive: true });
+window.addEventListener('keydown', (ev) => {
+  const k = ev.key.toLowerCase(), up = k === 'arrowup' || k === 'z' || k === 'w', down = k === 'arrowdown' || k === 's';
+  if (mode === 'carte' && (up || down)) { carteY += (down ? 1 : -1) * 120; clampCarte(); return; }
+  if (!up && !down && k !== ' ') return;
+  if (mode === 'pret') { audioInit(); partir(); return; }
+  if ((mode !== 'jeu' && mode !== 'lac') || ev.repeat) return;
+  ev.preventDefault(); changerNiveau(up ? 1 : -1);
+});
+function pause() { if (mode === 'jeu' || mode === 'pret') { lv.modeAvant = mode; mode = 'pause'; setAmb(0); screens('ecran-pause'); } else if (mode === 'lac') { lac.pause = true; mode = 'pause'; screens('ecran-pause'); } }
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+const rejouer = () => { if (lac && !lv) demarrerLac(lac.w); else if (cur < 0) demarrerFleuve(); else demarrerNiveau(cur); };
+$('b-carte').onclick = () => { audioInit(); sfx.carte(); ouvrirCarte(); };
+$('b-fleuve').onclick = () => { audioInit(); sfx.clic(); lac = null; demarrerFleuve(); };
+$('b-carte-fleuve').onclick = () => { sfx.clic(); lac = null; demarrerFleuve(); };
+$('b-carte-retour').onclick = () => { mode = 'titre'; lv = null; screens('ecran-titre'); titreInfo(); };
+$('b-fiche-jouer').onclick = () => { if (!carteSel) return; sfx.clic(); if (carteSel.lac != null) { lv = null; demarrerLac(carteSel.lac); } else { lac = null; demarrerNiveau(carteSel.idx); } };
+$('b-pause').onclick = pause;
+$('b-reprendre').onclick = () => { screens(null); if (lac && !lv) { mode = 'lac'; lac.pause = false; } else { mode = lv.modeAvant || 'jeu'; setAmb(0.06); } };
+$('b-recommencer').onclick = rejouer;
+$('b-p-carte').onclick = () => ouvrirCarte(cur >= 0 ? cur : undefined);
+$('b-rejouer').onclick = rejouer; $('b-reessayer').onclick = rejouer;
+$('b-v-carte').onclick = () => ouvrirCarte(cur); $('b-d-carte').onclick = () => ouvrirCarte(cur); $('b-fin-carte').onclick = () => ouvrirCarte();
+$('b-suivant').onclick = () => { if (cur >= 49) ouvrirCarte(49); else if (cur % 10 === 9) { ouvrirCarte(cur + 1); banner(MONDES[(cur + 1) / 10].nom, 'Nouveau monde'); sfx.palier(10); } else demarrerNiveau(cur + 1); };
+function majBoutonsSon() { $('b-musique').textContent = `Musique : ${save.musique ? 'oui' : 'non'}`; $('b-sons').textContent = `Sons : ${save.sons ? 'oui' : 'non'}`; $('b-son').style.opacity = save.musique || save.sons ? 1 : 0.5; }
+function appliquerSon() { if (Snd.ac) { Snd.mus.gain.setTargetAtTime(save.musique ? 0.32 : 0, Snd.ac.currentTime, 0.1); Snd.sfx.gain.setTargetAtTime(save.sons ? 0.8 : 0, Snd.ac.currentTime, 0.1); } majBoutonsSon(); persist(); }
+$('b-musique').onclick = () => { save.musique = !save.musique; appliquerSon(); };
+$('b-sons').onclick = () => { save.sons = !save.sons; appliquerSon(); };
+$('b-son').onclick = () => { audioInit(); const on = !(save.musique || save.sons); save.musique = on; save.sons = on; appliquerSon(); };
+function titreInfo() { $('titre-info').textContent = `${totalEtoiles()} ★ · ${save.pearls} perles · record du Grand Fleuve : ${Math.floor(save.fleuve.m)} m`; }
+
+window.addEventListener('resize', () => { resize(); if (mode === 'carte') clampCarte(); });
+resize(); buildCarte(); titreInfo(); majBoutonsSon();
+requestAnimationFrame(frame);
+</script>
+<!--WRAP-BODY-END-->
+</body>
+</html>
