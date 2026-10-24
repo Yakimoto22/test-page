@@ -374,15 +374,17 @@ function healthStep(h, e, dt, heal = HEAL) {
   return Math.max(0, Math.min(100, h + (e > 0 ? -BURN * e : heal) * dt));
 }
 
-// ---- Mode infini : biomes successifs, vitesse qui augmente, pas de régénération (seulement des bulles de vie).
+// ---- Mode infini : biomes successifs, vitesse qui augmente, régénération réduite et bulles de vie.
 const INF = {
   LEN: 700,          // échelle de difficulté (m)
   ACCEL: 0.004,      // Igor gagne 0,004 m/s par mètre parcouru : ≈ 3,9 m/s vers 4 min 15
   VMAX: 7,           // vitesse maximale d'Igor (m/s)
   SUNPOW: 0.6,       // le soleil accélère aussi, un peu moins vite qu'Igor
-  TOL0: 0.0, TOL1: 0.2, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
+  TOL0: 0.0, TOL1: 0.3, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
   SWAP: 1.1,         // marge sur la largeur d'objet nécessaire pour changer le soleil de côté
-  WRONG: 0.9,        // secondes de plein soleil au minimum si le soleil est du mauvais côté
+  REST: 0.25,        // chance de placer deux grands objets de suite (un trou sans piège, pour souffler)
+  WRONG: 1.4,        // secondes de plein soleil au minimum si le soleil est du mauvais côté
+  HEAL: 0.8,         // à l'ombre, la vie remonte à 80 % de la vitesse du monde 1
   BUBBLE: 100 / 3,   // vie rendue par une bulle
   BUBBLE_GAP: [80, 120],
 };
@@ -428,44 +430,45 @@ function makeEndless(seed) {
   const first = makeItem({ t: 'chene', x: 0.6, h: 5, w: 1 });  // Igor part à l'abri d'un grand chêne
   return { endless: true, nom: 'Infini', L: Infinity, a0: 0.75 * PI, items: [first], casters: [first.pts], rand: rng32(seed),
     lastRight: first.right, reachR: shadowOf(first.pts, 1, light(A_MIN).k)[1], side: 1,
-    prevWidth: first.right - first.left, bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
+    prevTall: true, bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
 }
 
-// Chaque trou entre deux obstacles ne se couvre que d'un côté : soit l'ombre de l'objet d'avant
-// (soleil à gauche), soit celle de l'objet suivant (soleil à droite). Le mauvais côté laisse Igor
-// au moins INF.WRONG secondes au soleil : impossible de gagner en laissant le soleil au même endroit.
+// Le chemin alterne un grand objet et un petit. Un trou entre les deux ne se couvre que par l'ombre
+// du grand : soleil à gauche quand on quitte un grand objet, soleil à droite quand on s'en approche.
+// Le mauvais côté laisse Igor au moins INF.WRONG secondes au soleil, donc un soleil laissé au même
+// endroit brûle Igor un trou sur deux. De temps en temps, deux grands se suivent pour souffler.
 function infAddOne(lv) {
   const r = lv.rand, Dx = lv.lastRight / INF.LEN, D = Math.min(1, Dx), v = infWalk(lv.lastRight);
   const tol = (INF.TOL0 + INF.TOL1 * Dx) * v, wrong = INF.WRONG * v;
   const kL = light(A_MIN).k, kR = light(A_MAX).k;
-  // Changer de côté se fait pendant qu'Igor passe sous l'objet précédent : il doit être assez large
-  // pour que le soleil ait le temps de traverser le ciel.
-  const swapNeed = v * (A_MAX - A_MIN) / infSun(lv.lastRight) * INF.SWAP;
-  if (r() < 0.45 + 0.25 * D && lv.prevWidth >= swapNeed) lv.side = -lv.side;
+  const swapNeed = v * (A_MAX - A_MIN) / infSun(lv.lastRight) * INF.SWAP;  // largeur pour changer le soleil de côté dessous
+  const bio = biomeAt(lv.lastRight).b;
+  const rest = lv.prevTall && r() < INF.REST * (1 - 0.6 * D);
+  const tall = rest || !lv.prevTall;
   const extR = lv.reachR - lv.lastRight;
-  let pick = null;
-  for (let i = 0; i < 40 && !pick; i++) {
-    const bio = biomeAt(lv.lastRight).b;
-    const big = r() < Math.max(0.15, 0.6 - 0.4 * D + bio.bigBias);
-    const list = big ? bio.big : bio.small;
+  let best = null;
+  for (let i = 0; i < 30; i++) {
+    const list = tall ? bio.big : bio.small;
     const o = GEN[list[Math.floor(r() * list.length)]](r);
     o.x = 0;
-    const it = makeItem(o), extL = it.left - shadowOf(it.pts, -1, kR)[0];
+    const it = makeItem(o), w = it.right - it.left, extL = it.left - shadowOf(it.pts, -1, kR)[0];
     let gmin, gmax;
-    if (lv.side > 0) { gmin = extL + wrong; gmax = extR + tol; }
-    else { gmin = extR + wrong; gmax = extL + tol; }
+    if (rest) { gmin = 0.3; gmax = Math.min(extR, extL) + tol; }   // couvert des deux côtés
+    else if (tall) { gmin = extR + wrong; gmax = extL + tol; }     // seul le soleil à droite couvre
+    else { gmin = extL + wrong; gmax = extR + tol; }               // seul le soleil à gauche couvre
     gmin = Math.max(gmin, 0.3);
-    if (gmax >= gmin) pick = { o, left: it.left, gap: gmin + (gmax - gmin) * r() * 0.8 };
+    const score = 3 * Math.min(0, gmax - gmin) + Math.min(0, w - swapNeed);
+    if (!best || score > best.score) best = { o, left: it.left, gmin, gmax, score };
+    if (score >= 0) break;
   }
-  if (!pick) {  // rien ne convient : un grand arbre collé, pour repartir proprement
-    const o = GEN.chene(r); o.x = 0;
-    pick = { o, left: makeItem(o).left, gap: 0.3 };
-  }
-  pick.o.x = lv.lastRight + pick.gap - pick.left;
-  const it = makeItem(pick.o);
+  // Si rien ne convient (fin de partie, très rapide), le trou reste au minimum du mauvais côté :
+  // Igor prend alors un peu de soleil même en jouant parfaitement.
+  const gap = best.gmax >= best.gmin ? best.gmin + (best.gmax - best.gmin) * r() * 0.8 : best.gmin;
+  best.o.x = lv.lastRight + gap - best.left;
+  const it = makeItem(best.o);
   lv.items.push(it); lv.casters.push(it.pts);
   lv.lastRight = it.right;
-  lv.prevWidth = it.right - it.left;
+  lv.prevTall = tall;
   lv.reachR = Math.max(lv.reachR, shadowOf(it.pts, 1, kL)[1]);
 }
 
@@ -585,7 +588,7 @@ function setupRun() {
   $('hud-nom').textContent = lv.endless ? 'Infini' : lv.nom;
   $('hint').innerHTML = '';
   const t = document.createElement('span');
-  t.textContent = lv.endless ? 'Pas de cercueil. À l’ombre, la vie ne remonte plus : attrape les bulles rouges. Igor accélère sans cesse.' : lv.hint;
+  t.textContent = lv.endless ? 'Pas de cercueil. À l’ombre, la vie remonte lentement ; les bulles rouges en rendent un tiers. Igor accélère sans cesse.' : lv.hint;
   const go = document.createElement('span'); go.className = 'go'; go.textContent = 'Touche l’écran pour réveiller Igor';
   $('hint').append(t, go);
   setSizzle(0);
@@ -685,7 +688,7 @@ function update(dt) {
       vx = Math.min(lv.L, vx + WALK * dt);
     }
     const e = exposure(lv, a, vx);
-    health = healthStep(health, e, dt, lv.endless ? 0 : HEAL);
+    health = healthStep(health, e, dt, lv.endless ? HEAL * INF.HEAL : HEAL);
     popT = Math.max(0, popT - dt * 2);
     minH = Math.min(minH, health);
     setSizzle(e);
@@ -944,14 +947,18 @@ function canopy(cx, ox, oy, rx, ry, seed, cols, hx, flatBottom) {
   };
   shape(); ctx.fillStyle = cols[1]; ctx.fill();
   ctx.save(); shape(); ctx.clip();
-  const g = ctx.createLinearGradient(X(ox + hx * rx, cx), Y(oy + ry), X(ox - hx * rx * 0.6, cx), Y(oy - ry));
+  // la lumière vient du soleil : direction (hx, vy), qui tourne en continu quand le soleil bouge
+  const vy = Math.sqrt(Math.max(0, 1 - hx * hx));
+  const g = ctx.createLinearGradient(X(ox + hx * rx, cx), Y(oy + vy * ry), X(ox - hx * rx * 0.6, cx), Y(oy - ry));
   g.addColorStop(0, alpha(cols[2], 0.75)); g.addColorStop(0.45, alpha(cols[1], 0)); g.addColorStop(1, alpha(cols[0], 0.9));
   ctx.fillStyle = g; ctx.fillRect(X(ox - rx * 1.2, cx), Y(oy + ry * 1.2), rx * 2.4 * S, ry * 2.4 * S);
   // petites feuilles : sombres dans la masse, claires sur le dessus éclairé
   for (let i = 0; i < 140; i++) {
     const t = r() * 2 * PI, d = Math.sqrt(r()), lx = ox + Math.cos(t) * d * rx, ly = oy + Math.sin(t) * d * ry;
-    const lit = (lx - ox) * hx * 0.6 + (ly - oy) > 0;
-    ctx.fillStyle = lit ? alpha(cols[2], 0.3) : alpha(cols[0], 0.35);
+    // éclairage progressif : chaque feuille s'éclaire ou s'assombrit selon son orientation vers le soleil
+    const d2 = ((lx - ox) / rx) * hx + ((ly - oy) / ry) * vy;
+    const lt = Math.max(0, Math.min(1, (d2 + 0.25) / 0.9));
+    ctx.fillStyle = mix(cols[0], cols[2], lt, 0.32);
     ctx.beginPath(); ctx.ellipse(X(lx, cx), Y(ly), S * (0.035 + 0.03 * r()), S * 0.022, t, 0, 2 * PI); ctx.fill();
   }
   ctx.restore();
@@ -1004,7 +1011,7 @@ function drawItemBack(it, cx, hx) {
       };
       tier(); ctx.fillStyle = '#1b3226'; ctx.fill();
       ctx.save(); tier(); ctx.clip();
-      ctx.fillStyle = 'rgba(90,130,90,.35)'; ctx.fillRect(hx < 0 ? X(x - hw, cx) : X(x, cx), Y(y1), hw * S, (y1 - y0) * S);
+      ctx.fillStyle = `rgba(90,130,90,${0.1 + 0.25 * Math.abs(hx)})`; ctx.fillRect(hx < 0 ? X(x - hw, cx) : X(x, cx), Y(y1), hw * S, (y1 - y0) * S);
       ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(X(x - hw, cx), Y(y0 + 0.08), 2 * hw * S, 0.12 * S);
       ctx.restore();
     }
@@ -1030,8 +1037,8 @@ function drawItemBack(it, cx, hx) {
     const litC = o.t === 'rocher' ? '#89837d' : o.t === 'tombe' ? '#918da2' : '#6b4d37';
     polyW(pts, cx); ctx.fillStyle = base; ctx.fill();
     ctx.save(); polyW(pts, cx); ctx.clip();
-    const mx = X(x, cx), g = ctx.createLinearGradient(mx + hx * S, 0, mx - hx * S, 0);
-    g.addColorStop(0, litC); g.addColorStop(0.6, alpha(litC, 0)); ctx.fillStyle = g; ctx.fillRect(mx - 4 * S, Y(5), 8 * S, 6 * S);
+    const mx = X(x, cx), sd = hx < 0 ? -1 : 1, g = ctx.createLinearGradient(mx + sd * S, 0, mx - sd * S, 0);
+    g.addColorStop(0, mix(base, litC, 0.35 + 0.65 * Math.abs(hx))); g.addColorStop(0.6, alpha(litC, 0)); ctx.fillStyle = g; ctx.fillRect(mx - 4 * S, Y(5), 8 * S, 6 * S);
     ctx.fillStyle = 'rgba(20,15,25,.25)'; ctx.fillRect(mx - 4 * S, Y(0.25), 8 * S, 0.25 * S);
     if (o.t === 'rocher') {  // fissures
       ctx.strokeStyle = 'rgba(30,25,25,.35)'; ctx.lineWidth = 1;
@@ -1238,7 +1245,7 @@ function drawParticles(cx) {
 }
 
 function render() {
-  const { elev } = light(a), elevT = Math.min(1, elev / (PI / 2)), cx = camX(), P = palette(elevT), hx = a < PI / 2 ? -1 : 1;
+  const { elev } = light(a), elevT = Math.min(1, elev / (PI / 2)), cx = camX(), P = palette(elevT), hx = -Math.cos(a);  // côté éclairé : -1 soleil à gauche, 0 à midi, +1 à droite (en continu)
   drawSky(P);
   drawSun(P, elevT);
   drawClouds(cx);
