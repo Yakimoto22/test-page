@@ -128,7 +128,7 @@ h2 { font-size: 40px; line-height: 1; }
 #banniere > * { width: fit-content; margin-inline: auto; }
 #banniere b { background: rgba(30,22,48,.55); border-radius: 14px; padding: 4px 18px 8px; }
 #banniere small { display: block; font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--os); opacity: .85; }
-#banniere b { display: block; font: 800 44px/1.05 var(--f-titre); color: var(--or); }
+#banniere b { display: block; font: 800 clamp(28px, 9vw, 44px)/1.05 var(--f-titre); color: var(--or); max-width: 92vw; text-wrap: balance; }
 @keyframes banniere { 0% { opacity: 0; transform: translateY(8px); } 15%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 
 #serie {
@@ -385,9 +385,17 @@ function exposure(lv, a, vx) {
   ints.sort((u, v) => u[0] - v[0]);
   let cov = 0, cur = -Infinity;
   for (const [a0, b0] of ints) { const s = Math.max(a0, cur); if (b0 > s) { cov += b0 - s; cur = b0; } }
-  const e = 1 - cov / (2 * HALF_W);
+  let e = 1 - cov / (2 * HALF_W);
+  // Flaques : quand le soleil est bas, l'eau renvoie la lumière sur Igor, même à l'ombre.
+  if (lv.puddles && light(a).elev < REFLECT_ELEV) {
+    for (const p of lv.puddles) {
+      const o = Math.min(hi0, p.x1) - Math.max(lo0, p.x0);
+      if (o > 0) e = Math.max(e, o / (2 * HALF_W));
+    }
+  }
   return e < 0.01 ? 0 : e;
 }
+const REFLECT_ELEV = 0.25 * PI;  // sous 45° de hauteur (positions tout à gauche / tout à droite), l'eau reflète
 
 function healthStep(h, e, dt, heal = HEAL) {
   return Math.max(0, Math.min(100, h + (e > 0 ? -BURN * e : heal) * dt));
@@ -400,7 +408,8 @@ const INF = {
   VMAX: 7,           // vitesse maximale d'Igor (m/s)
   TOL0: 0.0, TOL1: 0.3, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
   SWAP: 1.1,         // marge sur la largeur d'objet nécessaire pour changer le soleil de côté
-  REST: 0.25,        // chance de placer deux grands objets de suite (un trou sans piège, pour souffler)
+  REST: 0.3,         // chance de placer deux grands objets de suite (pause ou relais)
+  PUDDLE0: 0.25, PUDDLE1: 0.3,  // chance d'une flaque sous un grand objet (augmente avec la distance)
   WRONG: 1.4,        // secondes de plein soleil au minimum si le soleil est du mauvais côté
   HEAL: 0.8,         // à l'ombre, la vie remonte à 80 % de la vitesse du monde 1
   BUBBLE: 100 / 3,   // vie rendue par une bulle
@@ -448,7 +457,7 @@ function makeEndless(seed) {
   const first = makeItem({ t: 'chene', x: 0.6, h: 5, w: 1 });  // Igor part à l'abri d'un grand chêne
   return { endless: true, nom: 'Infini', L: Infinity, a0: 0.75 * PI, items: [first], casters: [first.pts], rand: rng32(seed),
     lastRight: first.right, reachR: shadowOf(first.pts, 1, light(A_MIN).k)[1], side: 1,
-    prevTall: true, bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
+    prevTall: true, puddles: [], bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
 }
 
 // Le chemin alterne un grand objet et un petit. Un trou entre les deux ne se couvre que par l'ombre
@@ -461,8 +470,12 @@ function infAddOne(lv) {
   const kL = light(A_MIN).k, kR = light(A_MAX).k;
   const swapNeed = v * (A_MAX - A_MIN) / infSun(lv.lastRight) * INF.SWAP;  // largeur pour changer le soleil de côté dessous
   const bio = biomeAt(lv.lastRight).b;
-  const rest = lv.prevTall && r() < INF.REST * (1 - 0.6 * D);
-  const tall = rest || !lv.prevTall;
+  // Après un grand objet : parfois un deuxième grand, soit pour souffler (trou couvert des deux côtés),
+  // soit en « relais » (trou trop long pour une seule ombre : il faut basculer le soleil au milieu).
+  const twoTall = lv.prevTall && r() < INF.REST + 0.15 * D;
+  const relay = twoTall && Dx > 0.04 && r() < 0.65;
+  const rest = twoTall && !relay;
+  const tall = twoTall || !lv.prevTall;
   const extR = lv.reachR - lv.lastRight;
   let best = null;
   for (let i = 0; i < 30; i++) {
@@ -472,6 +485,7 @@ function infAddOne(lv) {
     const it = makeItem(o), w = it.right - it.left, extL = it.left - shadowOf(it.pts, -1, kR)[0];
     let gmin, gmax;
     if (rest) { gmin = 0.3; gmax = Math.min(extR, extL) + tol; }   // couvert des deux côtés
+    else if (relay) { gmin = Math.max(extR, extL) + wrong; gmax = extR + extL - 0.4 + tol; }  // une moitié chacun
     else if (tall) { gmin = extR + wrong; gmax = extL + tol; }     // seul le soleil à droite couvre
     else { gmin = extL + wrong; gmax = extR + tol; }               // seul le soleil à gauche couvre
     gmin = Math.max(gmin, 0.3);
@@ -485,6 +499,15 @@ function infAddOne(lv) {
   best.o.x = lv.lastRight + gap - best.left;
   const it = makeItem(best.o);
   lv.items.push(it); lv.casters.push(it.pts);
+  // Flaque sous un grand objet : au-dessus, il faut un soleil plus haut (positions du milieu).
+  // Elle commence sous l'objet et déborde dans le trou suivant, aussi loin que porte l'ombre avec le
+  // soleil haut à gauche : il faut donc quitter le bas, puis y revenir au bon moment en sortant de l'eau.
+  if (tall && Dx > 0.06 && r() < INF.PUDDLE0 + INF.PUDDLE1 * D) {
+    const w = it.right - it.left, reach1 = shadowOf(it.pts, 1, light(SUN_POS[1]).k)[1] - it.right;
+    const x1 = it.right + Math.max(0, reach1 - 0.4) * (0.6 + 0.4 * r());
+    const x0 = Math.min(it.left + w * (0.15 + 0.3 * r()), x1 - 1.1 * v);
+    if (x0 > it.left - 0.2) lv.puddles.push({ x0, x1 });
+  }
   lv.lastRight = it.right;
   lv.prevTall = tall;
   lv.reachR = Math.max(lv.reachR, shadowOf(it.pts, 1, kL)[1]);
@@ -502,6 +525,7 @@ function infPrune(lv, behind) {
   lv.items = lv.items.filter((it) => it.right > behind);
   lv.casters = lv.items.map((it) => it.pts);
   lv.bubbles = lv.bubbles.filter((b) => b.x > behind);
+  lv.puddles = lv.puddles.filter((p) => p.x1 > behind);
 }
 
 function starsFor(final, minH) { return 1 + (final >= 50 ? 1 : 0) + (minH >= 70 ? 1 : 0); }
@@ -621,7 +645,7 @@ function setupRun() {
   $('hud-nom').textContent = lv.endless ? 'Infini' : lv.nom;
   $('hint').innerHTML = '';
   const t = document.createElement('span');
-  t.textContent = lv.endless ? 'Pas de cercueil. À l’ombre, la vie remonte lentement ; les bulles rouges en rendent un tiers. Igor accélère sans cesse.' : lv.hint;
+  t.textContent = lv.endless ? 'Pas de cercueil. À l’ombre, la vie remonte lentement ; les bulles rouges en rendent un tiers. Attention aux flaques : avec le soleil bas, l’eau brûle. Igor accélère sans cesse.' : lv.hint;
   const go = document.createElement('span'); go.className = 'go'; go.textContent = 'Touche l’écran pour réveiller Igor';
   $('hint').append(t, go);
   setSizzle(0);
@@ -743,6 +767,9 @@ function update(dt) {
           }
           burnedSince = 0;
         }
+      }
+      if (!lv.puddleVu && lv.puddles.some((p) => p.x0 < vx + W / S * 0.6)) {
+        lv.puddleVu = true; showBanner('L’eau reflète le soleil bas', 'Attention');
       }
       if (!recordPasse && vx > best.m) { recordPasse = true; showBanner('Record battu', 'Nouveau record'); sfx.serie(); buzz([30, 40, 30]); }
     }
@@ -883,11 +910,14 @@ function mountains(par, cx, base, amp, freq, color, haze, snow) {
   ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-6, groundY);
   for (const [px, py] of pts) ctx.lineTo(px, py);
   ctx.lineTo(W + 6, groundY); ctx.closePath(); ctx.fill();
-  if (snow > 0) {  // neige au-dessus d'une ligne irrégulière : seuls les sommets sont blancs
+  if (snow > 0) {  // neige au-dessus d'une ligne irrégulière, accrochée à la montagne : elle défile avec elle
     ctx.save(); ctx.clip();
     ctx.fillStyle = `rgba(242,244,252,${0.85 * snow})`;
     ctx.beginPath(); ctx.moveTo(-6, top - 10);
-    for (let sx = -6; sx <= W + 6; sx += 12) ctx.lineTo(sx, top + amp * S * (0.32 + 0.1 * Math.sin(sx * 0.07) + 0.05 * Math.sin(sx * 0.23)));
+    for (let sx = -6; sx <= W + 6; sx += 6) {
+      const w = sx / S + cx * par;
+      ctx.lineTo(sx, groundY - (base + amp * (0.62 + 0.08 * Math.sin(w * 1.7) + 0.05 * Math.sin(w * 4.3))) * S);
+    }
     ctx.lineTo(W + 6, top - 10); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
@@ -946,6 +976,12 @@ function drawBackdrop(cx, P) {
 
 function drawPath(cx, P) {
   const b = BAND();
+  // herbes du bord arrière du chemin : derrière Igor
+  ctx.strokeStyle = mix(P.meadow, '#2b3320', 0.2); ctx.lineWidth = Math.max(1, S * 0.025);
+  for (let i = Math.floor(cx * 5) - 2; i < (cx + W / S) * 5 + 2; i++) {
+    const h = hash(i + 0.25), px = X(i / 5, cx), len = S * (0.1 + 0.15 * h);
+    ctx.beginPath(); ctx.moveTo(px, groundY + 2); ctx.lineTo(px + len * 0.2, groundY - len); ctx.stroke();
+  }
   const g = ctx.createLinearGradient(0, groundY, 0, groundY + b);
   g.addColorStop(0, P.dirt2); g.addColorStop(0.35, P.dirt); g.addColorStop(1, P.dirt2);
   ctx.fillStyle = g; ctx.fillRect(0, groundY, W, b);
@@ -955,6 +991,35 @@ function drawPath(cx, P) {
     const h = hash(i), px = X(i / 3 + h * 0.3, cx), py = groundY + b * (0.1 + 0.85 * hash(i + 77));
     ctx.fillStyle = h > 0.5 ? 'rgba(60,45,35,.3)' : 'rgba(235,215,180,.22)';
     ctx.beginPath(); ctx.ellipse(px, py, S * (0.03 + 0.05 * h), S * (0.015 + 0.02 * h), 0, 0, 2 * PI); ctx.fill();
+  }
+}
+
+// Flaques : eau qui reflète le ciel ; quand le soleil est bas, reflet éblouissant qui brûle Igor.
+function drawPuddles(cx, P) {
+  if (!lv.puddles) return;
+  const b = BAND(), y = groundY + b * 0.6, glare = light(a).elev < REFLECT_ELEV;
+  for (const p of lv.puddles) {
+    const x0 = X(p.x0, cx), x1 = X(p.x1, cx);
+    if (x1 < -S || x0 > W + S) continue;
+    const mx = (x0 + x1) / 2, rx = (x1 - x0) / 2, ry = b * 0.32;
+    const g = ctx.createLinearGradient(0, y - ry, 0, y + ry);
+    g.addColorStop(0, mix(P.horizon, P.zenith, 0.3)); g.addColorStop(1, mix(P.zenith, '#1a2030', 0.3));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(mx, y, rx, ry, 0, 0, 2 * PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,30,20,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;  // vaguelettes
+    for (let i = 0; i < 3; i++) {
+      const wx = mx + Math.sin(clock * 1.3 + i * 2.1 + p.x0) * rx * 0.4, wy = y + (i - 1) * ry * 0.45;
+      ctx.beginPath(); ctx.ellipse(wx, wy, rx * 0.22, ry * 0.12, 0, PI * 1.1, PI * 1.9); ctx.stroke();
+    }
+    if (glare) {  // reflet dangereux
+      const t = 0.75 + 0.25 * Math.sin(clock * 9 + p.x0);
+      const rg = ctx.createRadialGradient(mx, y, 0, mx, y, rx * 1.1);
+      rg.addColorStop(0, `rgba(255,250,215,${0.85 * t})`); rg.addColorStop(0.5, `rgba(255,220,140,${0.35 * t})`); rg.addColorStop(1, 'rgba(255,220,140,0)');
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(mx, y, rx * 1.1, ry * 1.4, 0, 0, 2 * PI); ctx.fill();
+      const beam = ctx.createLinearGradient(0, y, 0, y - 2 * S);
+      beam.addColorStop(0, `rgba(255,240,190,${0.35 * t})`); beam.addColorStop(1, 'rgba(255,240,190,0)');
+      ctx.fillStyle = beam; ctx.fillRect(x0 + rx * 0.2, y - 2 * S, rx * 1.6, 2 * S);
+    }
   }
 }
 
@@ -1141,11 +1206,6 @@ function drawForeground(cx, P) {
     const h = hash(i + 0.5), px = (i / 6 - off) * S, len = S * (0.18 + 0.3 * h);
     ctx.beginPath(); ctx.moveTo(px, y0 + 3); ctx.quadraticCurveTo(px + len * 0.2, y0 - len * 0.5, px + len * (0.35 * h - 0.1), y0 - len); ctx.stroke();
   }
-  ctx.strokeStyle = mix(P.meadow, '#2b3320', 0.2); ctx.lineWidth = Math.max(1, S * 0.025);
-  for (let i = Math.floor(cx * 5) - 2; i < (cx + W / S) * 5 + 2; i++) {
-    const h = hash(i + 0.25), px = X(i / 5, cx), len = S * (0.1 + 0.15 * h);
-    ctx.beginPath(); ctx.moveTo(px, groundY + 2); ctx.lineTo(px + len * 0.2, groundY - len); ctx.stroke();
-  }
 }
 
 function drawCoffin(cx, open) {
@@ -1324,6 +1384,7 @@ function render() {
   drawClouds(cx);
   drawBackdrop(cx, P);
   drawPath(cx, P);
+  drawPuddles(cx, P);
   drawShadows(cx);
   for (const it of lv.items) drawItemBack(it, cx, hx);
   if (mode !== 'titre' && !lv.endless) drawCoffin(cx, !(mode === 'arrivee' && phaseT > 0.5) && mode !== 'victoire');
