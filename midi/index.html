@@ -118,6 +118,9 @@ h2 { font-size: 40px; line-height: 1; }
 .criteres li::before { content: "☆ "; color: #5a4a7c; }
 .criteres li.ok::before { content: "★ "; color: var(--or); }
 
+.score { margin: 0; font: 800 76px/1 var(--f-titre); color: var(--os); font-variant-numeric: tabular-nums; text-shadow: 0 4px 0 var(--nuit); }
+.record { margin: 0; color: var(--or); font-weight: 600; font-size: 17px; }
+
 @media (prefers-reduced-motion: reduce) { #hint .go { animation: none; } }
 </style>
 <!--WRAP-HEAD-END-->
@@ -137,8 +140,9 @@ h2 { font-size: 40px; line-height: 1; }
   <section class="ecran clair" id="ecran-titre">
     <h1>Midi</h1>
     <p class="sous">Igor doit rentrer dans son cercueil. Tu ne peux pas le diriger. Mais tu peux déplacer le soleil.</p>
-    <button class="btn enorme" id="b-jouer">Jouer</button>
-    <p class="petit">Monde 1 · La forêt · 12 niveaux</p>
+    <button class="btn enorme" id="b-jouer">Monde 1 · La forêt</button>
+    <button class="btn second" id="b-infini">Mode infini</button>
+    <p class="petit" id="record-titre">Record infini : aucun pour l’instant</p>
   </section>
 
   <section class="ecran" id="ecran-niveaux" hidden>
@@ -170,6 +174,15 @@ h2 { font-size: 40px; line-height: 1; }
     <p class="sous" id="d-texte">Igor a pris un coup de soleil.</p>
     <button class="btn enorme" id="b-reessayer">Réessayer</button>
     <button class="btn second" id="b-niveaux-d">Niveaux</button>
+  </section>
+
+  <section class="ecran clair" id="ecran-infini" hidden>
+    <h2>Aïe.</h2>
+    <p class="score" id="i-distance">0 m</p>
+    <p class="sous" id="i-detail">en 0:00</p>
+    <p class="record" id="i-record"></p>
+    <button class="btn enorme" id="b-infini-encore">Rejouer</button>
+    <button class="btn second" id="b-infini-menu">Menu</button>
   </section>
 
   <section class="ecran" id="ecran-pause" hidden>
@@ -340,6 +353,75 @@ function healthStep(h, e, dt) {
   return Math.max(0, Math.min(100, h + (e > 0 ? -BURN * e : HEAL) * dt));
 }
 
+// ---- Mode infini : obstacles générés à l'avance, vitesse qui augmente avec la distance.
+const INF = {
+  LEN: 700,          // ≈ 5 minutes de jeu : au-delà, ça devient vraiment dur
+  ACCEL: 0.0025,     // Igor gagne 0,0025 m/s par mètre parcouru
+  VMAX: 5,           // vitesse maximale d'Igor (m/s)
+  TOL0: 0.2, TOL1: 0.55, // secondes de plein soleil tolérées dans un trou, qui augmentent sans limite
+};
+function infWalk(x) { return Math.min(INF.VMAX, WALK + INF.ACCEL * Math.max(0, x)); }
+function infSun(x) { return SUN_SPEED * Math.pow(infWalk(x) / WALK, 0.4); }
+
+function rng32(seed) {
+  return function () {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeEndless(seed) {
+  return { endless: true, nom: 'Infini', L: Infinity, a0: 0.8 * PI, parts: [], casters: [], rand: rng32(seed), lastRight: 1.6, prev: null };
+}
+
+const INF_BIG = [
+  (r) => ({ t: 'chene', h: 4.5 + 2 * r(), w: 0.9 + 0.3 * r() }),
+  (r) => ({ t: 'pin', h: 4 + 1.2 * r() }),
+  (r) => ({ t: 'bouleau', h: 5 + 2 * r() }),
+];
+const INF_SMALL = [
+  (r) => ({ t: 'arbuste', h: 2.2 + r() }),
+  (r) => ({ t: 'buisson', w: 1.4 + r(), h: 0.9 + 0.5 * r() }),
+  (r) => ({ t: 'rocher', w: 1.6 + 1.4 * r(), h: 1.1 + 0.8 * r() }),
+  (r) => ({ t: 'souche', h: 0.8 + 0.4 * r() }),
+  (r) => ({ t: 'tombe', h: 1.2 + 0.5 * r() }),
+];
+
+function infAddOne(lv) {
+  const r = lv.rand, Dx = lv.lastRight / INF.LEN, D = Math.min(1.4, Dx);  // D : part des petits objets ; Dx : difficulté sans limite
+  const big = r() < Math.max(0.12, 0.75 - 0.6 * D);
+  const list = big ? INF_BIG : INF_SMALL;
+  const o = list[Math.floor(r() * list.length)](r);
+  o.x = 0;
+  const pts0 = MAKERS[o.t](o).flatMap((p) => p.pts);
+  let minX = Infinity, maxX = -Infinity;
+  for (const q of pts0) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); }
+  // écart voulu entre deux objets, puis réduit tant que le trou ne peut pas être couvert par une seule ombre
+  let gap = Math.min(2.5, 0.6 + 1.4 * Dx) * (0.7 + 0.6 * r()) * infWalk(lv.lastRight);
+  const tol = (INF.TOL0 + INF.TOL1 * Dx) * infWalk(lv.lastRight), lo = light(A_MIN), hiL = light(A_MAX);
+  const prevReach = lv.prev ? shadowOf(lv.prev, 1, lo.k)[1] : lv.lastRight;
+  for (let i = 0; i < 30; i++) {
+    const left = lv.lastRight + gap, shift = left - minX;
+    const myReach = shadowOf(pts0.map((q) => [q[0] + shift, q[1]]), -1, hiL.k)[0];
+    const hole = Math.min(Math.max(0, left - prevReach), Math.max(0, myReach - lv.lastRight));
+    if (hole <= tol) break;
+    gap *= 0.85;
+  }
+  o.x = lv.lastRight + gap - minX;
+  const parts = MAKERS[o.t](o), pts = parts.flatMap((p) => p.pts), right = o.x + maxX;
+  for (const p of parts) { p.right = right; lv.parts.push(p); }
+  pts.right = right; lv.casters.push(pts);
+  lv.prev = pts; lv.lastRight = right;
+}
+
+function infExtend(lv, upTo) { while (lv.lastRight < upTo) infAddOne(lv); }
+function infPrune(lv, behind) {
+  lv.parts = lv.parts.filter((p) => p.right > behind);
+  lv.casters = lv.casters.filter((c) => c.right > behind);
+}
+
 function starsFor(final, minH) { return 1 + (final >= 50 ? 1 : 0) + (minH >= 70 ? 1 : 0); }
 /*CORE-END*/
 
@@ -404,19 +486,39 @@ let a = PI / 2, target = PI / 2, vx = 0, health = 100, minH = 100, clock = 0, ph
 let particles = [];
 let keys = { l: false, r: false };
 
+let best = { m: 0, s: 0 }, runT = 0;
+try { const b = JSON.parse(localStorage.getItem('midi.infini')); if (b && b.m > 0) best = b; } catch (e) {}
+const fmtTemps = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function recordLabel() {
+  $('record-titre').textContent = best.m > 0 ? `Record infini : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}` : 'Record infini : aucun pour l’instant';
+}
+
 function show(id, on) { $(id).hidden = !on; }
 function screens(active) {
-  for (const id of ['ecran-titre', 'ecran-niveaux', 'ecran-victoire', 'ecran-defaite', 'ecran-pause']) show(id, id === active);
+  for (const id of ['ecran-titre', 'ecran-niveaux', 'ecran-victoire', 'ecran-defaite', 'ecran-infini', 'ecran-pause']) show(id, id === active);
 }
 
 function loadLevel(i) {
+  if (i < 0) { startEndless(); return; }
   cur = i; lv = buildLevel(LEVELS[i]);
+  setupRun();
+}
+
+function startEndless() {
+  cur = -1; lv = makeEndless((Math.random() * 1e9) | 0);
+  infExtend(lv, 40);
+  setupRun();
+}
+
+function setupRun() {
+  runT = 0;
   a = target = lv.a0; vx = 0; health = 100; minH = 100; phaseT = 0; burnT = 0; particles = [];
   mode = 'pret';
   screens(null); show('hud', true); show('hint', true);
-  $('hud-nom').textContent = lv.nom;
+  $('hud-nom').textContent = lv.endless ? 'Infini' : lv.nom;
   $('hint').innerHTML = '';
-  const t = document.createElement('span'); t.textContent = lv.hint;
+  const t = document.createElement('span');
+  t.textContent = lv.endless ? 'Pas de cercueil cette fois. Tiens le plus longtemps possible : Igor accélère sans cesse.' : lv.hint;
   const go = document.createElement('span'); go.className = 'go'; go.textContent = 'Touche l’écran pour réveiller Igor';
   $('hint').append(t, go);
   setSizzle(0);
@@ -448,6 +550,16 @@ function openLevels() {
 
 function finish(win) {
   setSizzle(0); show('hint', false);
+  if (lv.endless) {
+    const record = vx > best.m;
+    if (record) { best = { m: vx, s: runT }; try { localStorage.setItem('midi.infini', JSON.stringify(best)); } catch (e) {} }
+    $('i-distance').textContent = `${Math.floor(vx)} m`;
+    $('i-detail').textContent = `en ${fmtTemps(runT)}, à ${infWalk(vx).toFixed(1).replace('.', ',')} m/s`;
+    $('i-record').textContent = record ? 'Nouveau record !' : `Record : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}`;
+    recordLabel();
+    mode = 'defaite'; screens('ecran-infini');
+    return;
+  }
   if (win) {
     const st = starsFor(health, minH);
     if (st > progress.stars[cur]) { progress.stars[cur] = st; save(); }
@@ -481,11 +593,18 @@ function update(dt) {
     if (keys.r) target += 1.6 * dt;
     target = Math.max(A_MIN, Math.min(A_MAX, target));
   }
-  const step = SUN_SPEED * dt, d = target - a;
+  const step = (lv.endless ? infSun(vx) : SUN_SPEED) * dt, d = target - a;
   a += Math.max(-step, Math.min(step, d));
 
   if (mode === 'jeu') {
-    vx = Math.min(lv.L, vx + WALK * dt);
+    if (lv.endless) {
+      vx += infWalk(vx) * dt; runT += dt;
+      infExtend(lv, vx + W / S + 20);
+      if (lv.parts.length > 60) infPrune(lv, camX() - 6);
+      if (vx > 12 && !$('hint').hidden) show('hint', false);
+    } else {
+      vx = Math.min(lv.L, vx + WALK * dt);
+    }
     const e = exposure(lv, a, vx);
     health = healthStep(health, e, dt);
     minH = Math.min(minH, health);
@@ -509,7 +628,9 @@ function update(dt) {
 
   const h = 6 + (a / PI) * 12, hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
   const heure = Math.abs(a - PI / 2) < 0.02 ? 'Midi pile' : `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-  $('hud-heure').textContent = `1-${cur + 1} · ${heure}`;
+  $('hud-heure').textContent = lv.endless
+    ? `${Math.floor(vx)} m · ${fmtTemps(runT)} · ${infWalk(vx).toFixed(1).replace('.', ',')} m/s`
+    : `1-${cur + 1} · ${heure}`;
 }
 
 // ---- dessin
@@ -526,6 +647,7 @@ const COLORS = {
 
 function camX() {
   const view = W / S, lo = -1.6, hi = lv.L + 1.8 - view;
+  if (lv.endless) return Math.max(lo, vx - view * 0.3);
   if (hi < lo) return (lv.L - view) / 2;
   return Math.max(lo, Math.min(hi, vx - view * 0.3));
 }
@@ -736,7 +858,7 @@ function render() {
   drawHills(cx, elevT);
   drawObjects(cx);
   drawGround(cx);
-  if (mode !== 'titre') drawCoffin(cx, !(mode === 'arrivee' && phaseT > 0.5) && mode !== 'victoire');
+  if (mode !== 'titre' && !lv.endless) drawCoffin(cx, !(mode === 'arrivee' && phaseT > 0.5) && mode !== 'victoire');
   if (mode !== 'titre' && mode !== 'niveaux') drawIgor(cx, clock);
   drawParticles(cx);
   if (mode === 'arrivee' && phaseT > 0.5 && phaseT < 1.3) {
@@ -779,6 +901,10 @@ function pause() { if (mode === 'jeu' || mode === 'pret') { mode = 'pause'; setS
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
 $('b-jouer').onclick = () => { initAudio(); sfx.click(); openLevels(); };
+$('b-infini').onclick = () => { initAudio(); sfx.click(); startEndless(); };
+$('b-infini-encore').onclick = () => startEndless();
+$('b-infini-menu').onclick = () => { mode = 'titre'; lv = buildLevel(LEVELS[0]); vx = 0; show('hud', false); screens('ecran-titre'); };
+recordLabel();
 $('b-retour-titre').onclick = () => { mode = 'titre'; screens('ecran-titre'); };
 $('b-pause').onclick = pause;
 $('b-recommencer').onclick = () => loadLevel(cur);
