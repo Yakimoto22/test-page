@@ -131,14 +131,24 @@ h2 { font-size: 40px; line-height: 1; }
 #banniere b { display: block; font: 800 44px/1.05 var(--f-titre); color: var(--or); }
 @keyframes banniere { 0% { opacity: 0; transform: translateY(8px); } 15%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 
-@media (prefers-reduced-motion: reduce) { #hint .go, #banniere { animation: none; } }
+#serie {
+  position: absolute; left: 50%; top: 66px; transform: translateX(-50%); pointer-events: none;
+  background: rgba(30,22,48,.6); color: var(--os); border-radius: 999px; padding: 4px 14px;
+  font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+#serie b { color: var(--or); font-size: 18px; }
+#serie.pop { animation: pop .25s ease-out; }
+#serie.zero { opacity: .55; }
+@keyframes pop { 40% { transform: translateX(-50%) scale(1.25); } }
+
+@media (prefers-reduced-motion: reduce) { #hint .go, #banniere, #serie.pop { animation: none; } }
 </style>
 <!--WRAP-HEAD-END-->
 </head>
 <body>
 <!--WRAP-BODY-START-->
 <div id="app">
-  <canvas id="cv" aria-label="Scène du jeu : glisse le doigt pour déplacer le soleil"></canvas>
+  <canvas id="cv" aria-label="Scène du jeu : touche à gauche ou à droite pour déplacer le soleil"></canvas>
 
   <div id="hud" hidden>
     <button class="rond" id="b-pause" aria-label="Pause">II</button>
@@ -146,7 +156,8 @@ h2 { font-size: 40px; line-height: 1; }
     <button class="rond" id="b-recommencer" aria-label="Recommencer">↻</button>
   </div>
   <div id="hint" hidden></div>
-  <div id="banniere" hidden><small>Biome</small><b id="banniere-nom">La forêt</b></div>
+  <div id="banniere" hidden><small id="banniere-label">Biome</small><b id="banniere-nom">La forêt</b></div>
+  <div id="serie" hidden>Série <b id="serie-n">0</b></div>
 
   <section class="ecran clair" id="ecran-titre">
     <h1>Midi</h1>
@@ -212,7 +223,15 @@ h2 { font-size: 40px; line-height: 1; }
 // Règles du jeu : partagées par le jeu et par le script qui vérifie que chaque niveau est faisable.
 const PI = Math.PI;
 const A_MIN = 0.2 * PI, A_MAX = 0.8 * PI;  // position du soleil sur son arc (0 = horizon gauche)
-const SUN_SPEED = 1.8;   // radians par seconde : le soleil suit le doigt avec un léger retard
+// Le soleil a 5 positions : bas à gauche, haut à gauche, Midi, haut à droite, bas à droite.
+const SUN_POS = [0.2, 0.35, 0.5, 0.65, 0.8].map((f) => f * PI);
+const SUN_STEP_T = 4 / 30;  // temps pour passer d'une position à la voisine (≈ 0,13 s)
+const SUN_SPEED = (SUN_POS[1] - SUN_POS[0]) / SUN_STEP_T;
+function nearestPos(ang) {
+  let best = 0;
+  SUN_POS.forEach((p, i) => { if (Math.abs(p - ang) < Math.abs(SUN_POS[best] - ang)) best = i; });
+  return best;
+}
 const WALK = 1.4;        // vitesse d'Igor, en mètres par seconde
 const HALF_W = 0.35;     // demi-largeur d'Igor
 const BURN = 50;         // jauge perdue par seconde en plein soleil
@@ -293,7 +312,7 @@ const MAKERS = {
 
 const LEVELS = [
   { nom: 'Le vieux chêne', L: 7, a0: 0.7 * PI,
-    hint: 'Glisse ton doigt ← → : le soleil bouge, et l’ombre sur le chemin aussi. Garde Igor dedans.',
+    hint: 'Touche à gauche ou à droite de l’écran (ou ← →) : le soleil change de position, et l’ombre aussi. Garde Igor dedans.',
     objs: [{ t: 'chene', x: 4, h: 6, w: 1.2 }] },
   { nom: 'De l’autre côté', L: 10, a0: 0.75 * PI,
     hint: 'Quand Igor passe sous l’arbre, fais passer le soleil de l’autre côté.',
@@ -379,7 +398,6 @@ const INF = {
   LEN: 700,          // échelle de difficulté (m)
   ACCEL: 0.004,      // Igor gagne 0,004 m/s par mètre parcouru : ≈ 3,9 m/s vers 4 min 15
   VMAX: 7,           // vitesse maximale d'Igor (m/s)
-  SUNPOW: 0.6,       // le soleil accélère aussi, un peu moins vite qu'Igor
   TOL0: 0.0, TOL1: 0.3, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
   SWAP: 1.1,         // marge sur la largeur d'objet nécessaire pour changer le soleil de côté
   REST: 0.25,        // chance de placer deux grands objets de suite (un trou sans piège, pour souffler)
@@ -415,7 +433,7 @@ const GEN = {
 };
 
 function infWalk(x) { return Math.min(INF.VMAX, WALK + INF.ACCEL * Math.max(0, x)); }
-function infSun(x) { return SUN_SPEED * Math.pow(infWalk(x) / WALK, INF.SUNPOW); }
+function infSun() { return SUN_SPEED; }
 
 function rng32(seed) {
   return function () {
@@ -538,6 +556,8 @@ const sfx = {
   win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.3)); },
   lose() { tone(220, 0, 0.5, 'sine', 0.2, 0.5); tone(140, 0.2, 0.6, 'sine', 0.18, 0.6); },
   ouf() { tone(520, 0, 0.35, 'sine', 0.06, 0.7); },
+  pas() { tone(520 + 60 * ti, 0, 0.07, 'triangle', 0.035); },
+  serie() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, i * 0.07, 0.18, 'sine', 0.07)); },
   bulle() { tone(660, 0, 0.18, 'sine', 0.12, 1.5); tone(990, 0.08, 0.25, 'sine', 0.08, 1.3); },
   click() { tone(880, 0, 0.06, 'square', 0.03); },
 };
@@ -547,20 +567,31 @@ function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e
 // ---- état
 let mode = 'titre';        // titre | niveaux | pret | jeu | arrivee | cendres | victoire | defaite | pause
 let cur = 0, lv = buildLevel(LEVELS[0]);
+let ti = 2;  // position visée du soleil (0 à 4)
+let serie = 0, serieMax = 0, burnedSince = 0, recordPasse = false;
+const SERIE_TOL = 8;  // points de vie qu'on peut perdre entre deux obstacles sans casser la série
 let a = PI / 2, target = PI / 2, vx = 0, health = 100, minH = 100, clock = 0, phaseT = 0, burnT = 0;
 let particles = [];
-let keys = { l: false, r: false };
 
 let best = { m: 0, s: 0 }, runT = 0, curBiome = -1, banniereT = null, popT = 0;
-function showBanner(nom) {
-  const el = $('banniere'); $('banniere-nom').textContent = nom;
+function showBanner(nom, etiquette = 'Biome') {
+  const el = $('banniere'); $('banniere-nom').textContent = nom; $('banniere-label').textContent = etiquette;
   el.hidden = true; void el.offsetWidth; el.hidden = false;
   clearTimeout(banniereT); banniereT = setTimeout(() => { el.hidden = true; }, 2900);
 }
 try { const b = JSON.parse(localStorage.getItem('midi.infini')); if (b && b.m > 0) best = b; } catch (e) {}
 const fmtTemps = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function majSerie(pop) {
+  const el = $('serie');
+  el.hidden = !(lv && lv.endless) || mode === 'titre' || mode === 'niveaux';
+  $('serie-n').textContent = serie;
+  el.classList.toggle('zero', serie === 0);
+  if (pop) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+}
 function recordLabel() {
-  $('record-titre').textContent = best.m > 0 ? `Record infini : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}` : 'Record infini : aucun pour l’instant';
+  $('record-titre').textContent = best.m > 0
+    ? `Record infini : ${Math.floor(best.m)} m en ${fmtTemps(best.s)} · meilleure série : ${best.serie || 0}`
+    : 'Record infini : aucun pour l’instant';
 }
 
 function show(id, on) { $(id).hidden = !on; }
@@ -582,8 +613,10 @@ function startEndless() {
 
 function setupRun() {
   runT = 0; curBiome = -1; popT = 0; $('banniere').hidden = true;
-  a = target = lv.a0; vx = 0; health = 100; minH = 100; phaseT = 0; burnT = 0; particles = [];
+  ti = nearestPos(lv.a0); a = target = SUN_POS[ti]; vx = 0;
+  serie = 0; serieMax = 0; burnedSince = 0; recordPasse = !(best.m > 0); majSerie(); health = 100; minH = 100; phaseT = 0; burnT = 0; particles = [];
   mode = 'pret';
+  majSerie();
   screens(null); show('hud', true); show('hint', true);
   $('hud-nom').textContent = lv.endless ? 'Infini' : lv.nom;
   $('hint').innerHTML = '';
@@ -601,6 +634,7 @@ function startWalking() {
 }
 
 function openLevels() {
+  $('serie').hidden = true;
   mode = 'niveaux'; show('hud', false); show('hint', false); setSizzle(0);
   lv = buildLevel(LEVELS[0]); vx = 0;
   const g = $('grille'); g.innerHTML = '';
@@ -621,11 +655,16 @@ function openLevels() {
 function finish(win) {
   setSizzle(0); show('hint', false);
   if (lv.endless) {
-    const record = vx > best.m;
-    if (record) { best = { m: vx, s: runT }; try { localStorage.setItem('midi.infini', JSON.stringify(best)); } catch (e) {} }
+    const record = vx > best.m, serieRecord = serieMax > (best.serie || 0);
+    if (record || serieRecord) {
+      best = record ? { m: vx, s: runT, serie: Math.max(serieMax, best.serie || 0) } : { ...best, serie: serieMax };
+      try { localStorage.setItem('midi.infini', JSON.stringify(best)); } catch (e) {} }
     $('i-distance').textContent = `${Math.floor(vx)} m`;
     $('i-detail').textContent = `en ${fmtTemps(runT)}, à ${infWalk(vx).toFixed(1).replace('.', ',')} m/s`;
+    $('i-detail').textContent += ` · meilleure série : ${serieMax}`;
     $('i-record').textContent = record ? 'Nouveau record !' : `Record : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}`;
+    if (serieRecord) $('i-record').textContent += ' Nouvelle meilleure série !';
+    $('serie').hidden = true;
     recordLabel();
     mode = 'defaite'; screens('ecran-infini');
     return;
@@ -659,11 +698,9 @@ function update(dt) {
   } else if (mode === 'pause' || mode === 'victoire' || mode === 'defaite') {
     return;
   } else {
-    if (keys.l) target -= 1.6 * dt;
-    if (keys.r) target += 1.6 * dt;
-    target = Math.max(A_MIN, Math.min(A_MAX, target));
+    target = SUN_POS[ti];
   }
-  const step = (lv.endless ? infSun(vx) : SUN_SPEED) * dt, d = target - a;
+  const step = SUN_SPEED * dt, d = target - a;
   a += Math.max(-step, Math.min(step, d));
 
   if (mode === 'jeu') {
@@ -692,6 +729,23 @@ function update(dt) {
     popT = Math.max(0, popT - dt * 2);
     minH = Math.min(minH, health);
     setSizzle(e);
+    if (lv.endless) {
+      // La série casse dès qu'Igor a perdu plus de SERIE_TOL points de vie depuis le dernier obstacle
+      // (une fraction de seconde au soleil en changeant de position ne compte pas).
+      burnedSince += BURN * e * dt;
+      if (burnedSince > SERIE_TOL && serie > 0) { serie = 0; majSerie(); }
+      for (const it of lv.items) {
+        if (!it.passe && vx - HALF_W > it.right) {
+          it.passe = true;
+          if (burnedSince <= SERIE_TOL) {
+            serie++; serieMax = Math.max(serieMax, serie); majSerie(true);
+            if ([10, 25, 50, 100, 200].includes(serie)) { showBanner(`${serie} d’affilée`, 'Série parfaite'); sfx.serie(); }
+          }
+          burnedSince = 0;
+        }
+      }
+      if (!recordPasse && vx > best.m) { recordPasse = true; showBanner('Record battu', 'Nouveau record'); sfx.serie(); buzz([30, 40, 30]); }
+    }
     if (e > 0) {
       if (burnT === 0) buzz(25);
       burnT += dt;
@@ -738,7 +792,7 @@ function camX() {
 }
 
 function sunPos(ang = a) {
-  const rx = W * 0.44, ry = Math.max(80, groundY - 60);
+  const rx = W * 0.44, ry = Math.max(80, groundY - 160);  // le haut de l'arc reste sous le titre et la série
   return [W / 2 - rx * Math.cos(ang), groundY - ry * Math.sin(ang)];
 }
 
@@ -800,9 +854,12 @@ function drawClouds(cx) {
 
 function drawSun(P, elevT) {
   const [x, y] = sunPos(), r = Math.max(14, S * 0.42);
-  if (Math.abs(target - a) > 0.03 && (mode === 'jeu' || mode === 'pret')) {
-    const [tx, ty] = sunPos(target);
-    ctx.strokeStyle = 'rgba(255,245,220,.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(tx, ty, r * 0.8, 0, 2 * PI); ctx.stroke();
+  if (mode === 'jeu' || mode === 'pret') {  // les 5 positions possibles, la visée en plus marqué
+    SUN_POS.forEach((p, i) => {
+      const [px, py] = sunPos(p);
+      ctx.fillStyle = i === ti ? 'rgba(255,240,200,.85)' : 'rgba(255,245,225,.32)';
+      ctx.beginPath(); ctx.arc(px, py, i === ti ? 4 : 3, 0, 2 * PI); ctx.fill();
+    });
   }
   const bloom = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 5);
   bloom.addColorStop(0, 'rgba(255,248,225,.75)'); bloom.addColorStop(0.25, alpha(P.light, 0.28)); bloom.addColorStop(1, 'rgba(255,220,160,0)');
@@ -1108,6 +1165,22 @@ function drawCoffin(cx, open) {
   ctx.restore();
 }
 
+// Drapeau planté au bord du chemin, à la distance du record (mode infini).
+function drawRecordFlag(cx) {
+  if (!lv.endless || !(best.m > 0)) return;
+  const x = X(best.m, cx);
+  if (x < -2 * S || x > W + 2 * S) return;
+  const base = groundY + 0.15 * S, top = base - 2.3 * S, wave = Math.sin(clock * 4) * 0.06 * S;
+  ctx.strokeStyle = '#2a2230'; ctx.lineWidth = Math.max(2, S * 0.05);
+  ctx.beginPath(); ctx.moveTo(x, base); ctx.lineTo(x, top); ctx.stroke();
+  ctx.fillStyle = recordPasse ? '#8a8494' : '#ffc94a';
+  ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x + 1.1 * S, top + 0.22 * S + wave); ctx.lineTo(x + 1.05 * S, top + 0.62 * S + wave); ctx.lineTo(x, top + 0.5 * S); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2b2142'; ctx.font = `600 ${Math.round(S * 0.2)}px Fredoka, sans-serif`; ctx.textAlign = 'left';
+  ctx.fillText('Record', x + 0.1 * S, top + 0.4 * S + wave * 0.5);
+  ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = `600 ${Math.round(S * 0.18)}px Fredoka, sans-serif`;
+  ctx.fillText(`${Math.floor(best.m)} m`, x + 0.1 * S, top + 0.85 * S);
+}
+
 // Bulles de vie (mode infini) : flottent à hauteur de poitrine, Igor les attrape en passant.
 function drawBubbles(cx) {
   if (!lv.endless) return;
@@ -1254,6 +1327,7 @@ function render() {
   drawShadows(cx);
   for (const it of lv.items) drawItemBack(it, cx, hx);
   if (mode !== 'titre' && !lv.endless) drawCoffin(cx, !(mode === 'arrivee' && phaseT > 0.5) && mode !== 'victoire');
+  drawRecordFlag(cx);
   drawBubbles(cx);
   if (mode !== 'titre' && mode !== 'niveaux') drawIgor(cx, clock);
   drawParticles(cx);
@@ -1272,28 +1346,36 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 
-// ---- contrôles
+// ---- contrôles : un tap (ou clic) à gauche / à droite de l'écran, un glissé, ou les flèches.
+function stepSun(d) {
+  const n = Math.max(0, Math.min(SUN_POS.length - 1, ti + d));
+  if (n === ti) return;
+  ti = n; sfx.pas(); buzz(8);
+}
+const DRAG_STEP = () => Math.max(40, W * 0.14);  // distance de glissé pour une position
 let dragX = null;
 cv.addEventListener('pointerdown', (ev) => {
   initAudio();
-  if (mode === 'pret') startWalking();
+  if (mode === 'pret') { startWalking(); return; }
   if (mode !== 'jeu') return;
+  stepSun(ev.clientX < W / 2 ? -1 : 1);  // réaction immédiate, sans attendre qu'on lève le doigt
   dragX = ev.clientX; try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
 });
 cv.addEventListener('pointermove', (ev) => {
   if (dragX === null || mode !== 'jeu') return;
-  target += ((ev.clientX - dragX) / W) * (A_MAX - A_MIN) * 1.15;
-  target = Math.max(A_MIN, Math.min(A_MAX, target));
-  dragX = ev.clientX;
+  const dx = ev.clientX - dragX;
+  if (Math.abs(dx) >= DRAG_STEP()) { stepSun(dx > 0 ? 1 : -1); dragX += Math.sign(dx) * DRAG_STEP(); }
 });
 const endDrag = () => { dragX = null; };
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
 window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'ArrowLeft') keys.l = true;
-  if (ev.key === 'ArrowRight') keys.r = true;
-  if ((ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === ' ') && mode === 'pret') { initAudio(); startWalking(); }
+  const k = ev.key.toLowerCase(), left = k === 'arrowleft' || k === 'q' || k === 'a', right = k === 'arrowright' || k === 'd';
+  if (!left && !right && k !== ' ') return;
+  if (mode === 'pret') { initAudio(); startWalking(); return; }
+  if (mode !== 'jeu' || ev.repeat) return;
+  ev.preventDefault();
+  if (left) stepSun(-1); else if (right) stepSun(1);
 });
-window.addEventListener('keyup', (ev) => { if (ev.key === 'ArrowLeft') keys.l = false; if (ev.key === 'ArrowRight') keys.r = false; });
 
 function pause() { if (mode === 'jeu' || mode === 'pret') { mode = 'pause'; setSizzle(0); screens('ecran-pause'); } }
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
@@ -1301,7 +1383,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 $('b-jouer').onclick = () => { initAudio(); sfx.click(); openLevels(); };
 $('b-infini').onclick = () => { initAudio(); sfx.click(); startEndless(); };
 $('b-infini-encore').onclick = () => startEndless();
-$('b-infini-menu').onclick = () => { mode = 'titre'; lv = buildLevel(LEVELS[0]); vx = 0; show('hud', false); screens('ecran-titre'); };
+$('b-infini-menu').onclick = () => { $('serie').hidden = true; mode = 'titre'; lv = buildLevel(LEVELS[0]); vx = 0; show('hud', false); screens('ecran-titre'); };
 recordLabel();
 $('b-retour-titre').onclick = () => { mode = 'titre'; screens('ecran-titre'); };
 $('b-pause').onclick = pause;
