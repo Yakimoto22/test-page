@@ -211,13 +211,20 @@ function ellipse(cx, cy, rx, ry, n = 20) {
   return p;
 }
 
-// Chaque objet est une liste de formes convexes (ombre = projection de ses sommets sur le sol).
+// Chaque objet est une liste de formes. Il projette UNE seule ombre continue sur le sol.
 const MAKERS = {
   chene(o) {
     const h = o.h || 5, w = o.w || 1;
     return [
       { kind: 'tronc', pts: rect(o.x - 0.2, o.x + 0.2, 0, 0.55 * h) },
       { kind: 'feuilles', pts: ellipse(o.x, 0.68 * h, 0.34 * h * w, 0.3 * h) },
+    ];
+  },
+  arbuste(o) {
+    const h = o.h || 2.6;
+    return [
+      { kind: 'tronc', pts: rect(o.x - 0.12, o.x + 0.12, 0, 0.5 * h) },
+      { kind: 'feuilles-clair', pts: ellipse(o.x, 0.66 * h, 0.36 * h, 0.34 * h, 16) },
     ];
   },
   pin(o) {
@@ -254,58 +261,72 @@ const MAKERS = {
 };
 
 const LEVELS = [
-  { nom: 'Le vieux chêne', L: 9, a0: 0.78 * PI,
-    hint: 'Glisse ton doigt ← → n’importe où : le soleil bouge, et l’ombre avec lui.',
-    objs: [{ t: 'chene', x: 4.6, h: 6, w: 1.1 }] },
-  { nom: 'Deux chênes', L: 14, a0: 0.8 * PI,
-    hint: 'Soleil à droite : l’ombre part à gauche. Soleil à gauche : elle part à droite.',
-    objs: [{ t: 'chene', x: 3.2, h: 5.1, w: 1.2 }, { t: 'chene', x: 9.9, h: 4.8, w: 1.1 }] },
-  { nom: 'Les rochers', L: 12, a0: 0.82 * PI,
+  { nom: 'Le vieux chêne', L: 7, a0: 0.7 * PI,
+    hint: 'Glisse ton doigt ← → : le soleil bouge, l’ombre violette aussi. Garde Igor dedans.',
+    objs: [{ t: 'chene', x: 4, h: 6, w: 1.2 }] },
+  { nom: 'De l’autre côté', L: 10, a0: 0.75 * PI,
+    hint: 'Quand Igor passe sous l’arbre, fais passer le soleil de l’autre côté.',
+    objs: [{ t: 'chene', x: 4.5, h: 5.5, w: 1.1 }] },
+  { nom: 'Le petit arbre', L: 9, a0: 0.75 * PI,
+    hint: 'Petit arbre, petite ombre. Grand arbre, grande ombre.',
+    objs: [{ t: 'arbuste', x: 2.5, h: 3 }, { t: 'chene', x: 6.5, h: 5 }] },
+  { nom: 'Grand et petit', L: 12, a0: 0.78 * PI,
     hint: 'Soleil bas : ombre longue. Soleil haut : ombre courte.',
-    objs: [{ t: 'rocher', x: 4.4, w: 2.2, h: 1.8 }, { t: 'rocher', x: 7.7, w: 2.5, h: 1.6 }] },
-  { nom: 'Les pins', L: 16, a0: 0.8 * PI,
-    hint: 'Change le soleil de côté quand Igor passe sous un arbre.',
-    objs: [{ t: 'pin', x: 3.6, h: 4.6 }, { t: 'pin', x: 8.2, h: 4.3 }, { t: 'pin', x: 12.6, h: 4.1 }] },
-  { nom: 'La clairière', L: 17, a0: 0.82 * PI,
-    hint: 'Un grand trou ? Il faut une ombre très longue.',
-    objs: [{ t: 'chene', x: 3.8, h: 5.6, w: 1 }, { t: 'buisson', x: 8, w: 1.5, h: 0.9 }, { t: 'buisson', x: 15, w: 2.2, h: 1.4 }] },
-  { nom: 'Les bouleaux', L: 16, a0: 0.75 * PI,
-    hint: 'Une ombre fine ne protège Igor qu’en partie.',
-    objs: [{ t: 'bouleau', x: 3.9, h: 7 }, { t: 'bouleau', x: 6, h: 5.1 }, { t: 'bouleau', x: 8.9, h: 5.3 }, { t: 'bouleau', x: 12.6, h: 5 }] },
-  { nom: 'Volte-face', L: 18, a0: 0.18 * PI,
-    hint: 'Le soleil commence à gauche cette fois. Vite !',
-    objs: [{ t: 'rocher', x: 2.1, w: 2.7, h: 1.2 }, { t: 'buisson', x: 9.9, w: 2.4, h: 1 }, { t: 'chene', x: 14.4, h: 6.3, w: 0.9 }] },
-  { nom: 'Les buissons', L: 18, a0: 0.8 * PI,
+    objs: [{ t: 'chene', x: 3.5, h: 5.5 }, { t: 'arbuste', x: 8.5, h: 2.8 }] },
+  { nom: 'Les rochers', L: 13, a0: 0.8 * PI,
+    hint: 'Les rochers sont bas : il faut un soleil bien bas.',
+    objs: [{ t: 'rocher', x: 4.4, w: 2.5, h: 1.6 }, { t: 'rocher', x: 8.4, w: 2.7, h: 1.9 }] },
+  { nom: 'Le pin et les arbustes', L: 15, a0: 0.8 * PI,
+    hint: 'Anticipe : change le soleil de côté avant qu’il soit trop tard.',
+    objs: [{ t: 'pin', x: 3.1, h: 3.9 }, { t: 'arbuste', x: 8.2, h: 2.6 }, { t: 'arbuste', x: 11.4, h: 2.6 }] },
+  { nom: 'Les buissons', L: 16, a0: 0.8 * PI,
     hint: 'Petits buissons, petites ombres : garde le soleil bas.',
-    objs: [{ t: 'buisson', x: 3.4, w: 1.6, h: 1 }, { t: 'buisson', x: 7.3, w: 1.6, h: 1 }, { t: 'buisson', x: 11.1, w: 2, h: 1.1 }, { t: 'buisson', x: 14.6, w: 1.4, h: 1.1 }] },
+    objs: [{ t: 'buisson', x: 3.5, w: 1.7, h: 1.3 }, { t: 'buisson', x: 8.2, w: 2.3, h: 1.1 }, { t: 'arbuste', x: 11.8, h: 2.2 }] },
+  { nom: 'Volte-face', L: 16, a0: 0.35 * PI,
+    hint: 'Le soleil commence à gauche cette fois.',
+    objs: [{ t: 'chene', x: 3.1, h: 5.9, w: 1.2 }, { t: 'rocher', x: 6.6, w: 2.7, h: 1.6 }, { t: 'rocher', x: 9, w: 1.6, h: 1.5 }, { t: 'arbuste', x: 13, h: 2.7 }] },
+  { nom: 'La haie', L: 18, a0: 0.8 * PI,
+    hint: 'Une ombre après l’autre. Ne traîne pas.',
+    objs: [{ t: 'buisson', x: 3.7, w: 2.1, h: 1.1 }, { t: 'buisson', x: 7.2, w: 1.9, h: 1.1 }, { t: 'arbuste', x: 11.5, h: 2.6 }, { t: 'arbuste', x: 14.1, h: 3.2 }] },
   { nom: 'Les souches', L: 20, a0: 0.8 * PI,
-    hint: 'On a coupé les arbres. Il reste les souches… et deux pins.',
-    objs: [{ t: 'souche', x: 3.9, h: 1.1 }, { t: 'souche', x: 6.6, h: 1.2 }, { t: 'souche', x: 8, h: 1 }, { t: 'souche', x: 11.1, h: 0.8 }, { t: 'pin', x: 14.7, h: 5.2 }, { t: 'pin', x: 16.1, h: 3.9 }] },
-  { nom: 'Le sentier', L: 26, a0: 0.8 * PI,
+    hint: 'On a coupé les arbres. Il reste surtout des souches.',
+    objs: [{ t: 'souche', x: 4.1, h: 1.2 }, { t: 'arbuste', x: 7.2, h: 2.6 }, { t: 'souche', x: 9.5, h: 1 }, { t: 'pin', x: 12.9, h: 4.1 }, { t: 'arbuste', x: 16.4, h: 2.9 }] },
+  { nom: 'Le sentier', L: 24, a0: 0.8 * PI,
     hint: 'Un long chemin. Anticipe.',
-    objs: [{ t: 'bouleau', x: 3.2, h: 5.5 }, { t: 'buisson', x: 8.8, w: 2, h: 1.3 }, { t: 'buisson', x: 12.9, w: 1.5, h: 1 }, { t: 'chene', x: 18.1, h: 5.1, w: 1.1 }, { t: 'buisson', x: 23.2, w: 2.4, h: 0.9 }] },
-  { nom: 'Le chaos rocheux', L: 24, a0: 0.8 * PI,
-    hint: 'Peu d’arbres, beaucoup de pierres. Chaque mètre d’ombre compte.',
-    objs: [{ t: 'pin', x: 3.4, h: 4.4 }, { t: 'souche', x: 7.8, h: 0.8 }, { t: 'rocher', x: 9.5, w: 2.8, h: 1.7 }, { t: 'rocher', x: 14.2, w: 2.8, h: 1.6 }, { t: 'souche', x: 17.5, h: 1.1 }, { t: 'rocher', x: 19.6, w: 3.1, h: 1.7 }] },
-  { nom: 'Le cimetière', L: 30, a0: 0.8 * PI,
+    objs: [{ t: 'chene', x: 3.5, h: 5.1, w: 1.1 }, { t: 'arbuste', x: 8.6, h: 2.2 }, { t: 'buisson', x: 12.6, w: 1.7, h: 0.9 }, { t: 'arbuste', x: 16.7, h: 2.8 }, { t: 'rocher', x: 19.7, w: 2.7, h: 1.7 }] },
+  { nom: 'Le cimetière', L: 28, a0: 0.8 * PI,
     hint: 'Le cercueil d’Igor est au bout. Courage.',
-    objs: [{ t: 'tombe', x: 4.1, h: 1.4 }, { t: 'tombe', x: 6.3, h: 1.3 }, { t: 'rocher', x: 9.8, w: 2, h: 1.6 }, { t: 'tombe', x: 12.7, h: 1.6 }, { t: 'tombe', x: 14.4, h: 1.5 },
-           { t: 'rocher', x: 17.4, w: 1.6, h: 1.2 }, { t: 'chene', x: 21.3, h: 5.7, w: 1.1 }, { t: 'tombe', x: 23.3, h: 1.6 }, { t: 'tombe', x: 26, h: 1.3 }] },
+    objs: [{ t: 'tombe', x: 4.1, h: 1.4 }, { t: 'rocher', x: 7.6, w: 1.6, h: 1.6 }, { t: 'tombe', x: 9.6, h: 1.5 }, { t: 'tombe', x: 13.2, h: 1.3 }, { t: 'arbuste', x: 14.8, h: 2.9 },
+           { t: 'chene', x: 18.1, h: 5.3, w: 0.9 }, { t: 'chene', x: 21, h: 6.4, w: 1.2 }, { t: 'tombe', x: 24.7, h: 1.5 }] },
 ];
 
 function buildLevel(def) {
-  const parts = [];
-  for (const o of def.objs) for (const p of MAKERS[o.t](o)) parts.push(p);
-  return { ...def, parts };
+  const parts = [], casters = [];
+  for (const o of def.objs) {
+    const ps = MAKERS[o.t](o);
+    parts.push(...ps);
+    casters.push(ps.flatMap((p) => p.pts));
+  }
+  return { ...def, parts, casters };
+}
+
+// Ombre d'un objet : [début, fin, sommet qui fixe le bout de l'ombre].
+function shadowOf(pts, dir, k) {
+  let lo = Infinity, hi = -Infinity, tip = null;
+  for (const q of pts) {
+    const s = q[0] + dir * q[1] * k;
+    if (s < lo) { lo = s; if (dir < 0) tip = q; }
+    if (s > hi) { hi = s; if (dir > 0) tip = q; }
+  }
+  return [lo, hi, tip];
 }
 
 // Fraction d'Igor (0 → 1) qui est au soleil.
 function exposure(lv, a, vx) {
   const { dir, k } = light(a);
   const lo0 = vx - HALF_W, hi0 = vx + HALF_W, ints = [];
-  for (const p of lv.parts) {
-    let lo = Infinity, hi = -Infinity;
-    for (const [x, y] of p.pts) { const s = x + dir * y * k; if (s < lo) lo = s; if (s > hi) hi = s; }
+  for (const c of lv.casters) {
+    const [lo, hi] = shadowOf(c, dir, k);
     if (hi > lo0 && lo < hi0) ints.push([Math.max(lo, lo0), Math.min(hi, hi0)]);
   }
   ints.sort((u, v) => u[0] - v[0]);
@@ -334,7 +355,7 @@ function resize() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   S = Math.max(16, Math.min(W / 10, H / 16));
   groundY = Math.round(H * (W > H ? 0.7 : 0.68));
-  $('hint').style.top = (groundY + 0.8 * S + 22) + 'px';
+  $('hint').style.top = (groundY + 0.9 * S + 22) + 'px';
 }
 
 // ---- sauvegarde
@@ -588,16 +609,28 @@ function drawObjects(cx) {
 }
 
 function drawGround(cx) {
-  const strip = 0.8 * S, { dir, k } = light(a);
+  const strip = 0.9 * S, { dir, k } = light(a);
   // sol éclairé
   ctx.fillStyle = '#f0c46a'; ctx.fillRect(0, groundY, W, strip);
-  // ombres portées
+  // ombres portées : une par objet, avec le rayon qui frôle son sommet et marque le bout de l'ombre
+  const shadows = lv.casters.map((c) => shadowOf(c, dir, k));
   ctx.fillStyle = '#4b3a6e';
-  for (const p of lv.parts) {
-    let lo = Infinity, hi = -Infinity;
-    for (const [x, y] of p.pts) { const s = x + dir * y * k; lo = Math.min(lo, s); hi = Math.max(hi, s); }
-    ctx.fillRect((lo - cx) * S, groundY, (hi - lo) * S, strip);
+  for (const [lo, hi] of shadows) ctx.fillRect((lo - cx) * S, groundY, (hi - lo) * S, strip);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,236,160,.75)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+  for (const [lo, hi, tip] of shadows) {
+    const end = dir > 0 ? hi : lo;
+    ctx.beginPath(); ctx.moveTo((tip[0] - cx) * S, groundY - tip[1] * S); ctx.lineTo((end - cx) * S, groundY); ctx.stroke();
   }
+  ctx.restore();
+  // bordure seulement aux extrémités de la zone d'ombre (les ombres qui se touchent se fondent en une seule)
+  const zones = [];
+  for (const [lo, hi] of [...shadows].sort((u, v) => u[0] - v[0])) {
+    const z = zones[zones.length - 1];
+    if (z && lo <= z[1]) z[1] = Math.max(z[1], hi); else zones.push([lo, hi]);
+  }
+  ctx.fillStyle = '#2f2350';
+  for (const [lo, hi] of zones) { ctx.fillRect((lo - cx) * S - 1.5, groundY, 3, strip); ctx.fillRect((hi - cx) * S - 1.5, groundY, 3, strip); }
   ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(0, groundY, W, 2);
   // terre
   const g = ctx.createLinearGradient(0, groundY + strip, 0, H);
@@ -612,7 +645,7 @@ function drawGround(cx) {
 }
 
 function drawCoffin(cx, open) {
-  const x = (lv.L - cx) * S, y = groundY + 0.45 * S, w = 0.75 * S, h = 1.5 * S;
+  const x = (lv.L - cx) * S, y = groundY + 0.5 * S, w = 0.75 * S, h = 1.5 * S;
   ctx.save(); ctx.translate(x + 0.15 * S, y);
   ctx.fillStyle = '#3a2420';
   ctx.beginPath(); ctx.moveTo(-w * 0.35, 0); ctx.lineTo(w * 0.35, 0); ctx.lineTo(w * 0.5, -h * 0.72); ctx.lineTo(w * 0.3, -h); ctx.lineTo(-w * 0.3, -h); ctx.lineTo(-w * 0.5, -h * 0.72); ctx.closePath(); ctx.fill();
@@ -627,7 +660,7 @@ function drawCoffin(cx, open) {
 function drawIgor(cx, t) {
   const walking = mode === 'jeu';
   const e = mode === 'jeu' ? exposure(lv, a, vx) : 0;
-  const x = (vx - cx) * S, y = groundY + 0.45 * S, s = S;
+  const x = (vx - cx) * S, y = groundY + 0.5 * S, s = S;
   if (mode === 'arrivee' && phaseT > 0.5) return;
   if (mode === 'cendres' || mode === 'defaite') {
     const k = Math.min(1, phaseT / 0.6);
@@ -692,7 +725,7 @@ function drawIgorBody(x, y, s, t, burn, walking) {
 function drawParticles(cx) {
   for (const p of particles) {
     ctx.fillStyle = `rgba(230,225,235,${0.55 * p.life})`;
-    ctx.beginPath(); ctx.arc((p.x - cx) * S, groundY + 0.45 * S - p.y * S, p.r * S, 0, 2 * PI); ctx.fill();
+    ctx.beginPath(); ctx.arc((p.x - cx) * S, groundY + 0.5 * S - p.y * S, p.r * S, 0, 2 * PI); ctx.fill();
   }
 }
 
