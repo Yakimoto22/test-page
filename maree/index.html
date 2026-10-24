@@ -208,10 +208,8 @@ h2 { font-size: 36px; line-height: 1; color: var(--or); }
 
   <section class="ecran clair" id="ecran-titre">
     <h1>Marée</h1>
-    <p class="sous">La capitaine Lou remonte la rivière. Tu ne tiens pas la barre : tu commandes l’eau.</p>
     <button class="btn enorme" id="b-carte">Jouer</button>
     <div class="rangee"><button class="btn second" id="b-fleuve">Le Grand Fleuve</button><button class="btn or" id="b-boutique-titre">Boutique</button></div>
-    <p class="petit" id="titre-info"></p>
   </section>
 
   <section id="ecran-carte" hidden>
@@ -231,6 +229,7 @@ h2 { font-size: 36px; line-height: 1; color: var(--or); }
     <div id="carte-pied">
       <button class="btn second" id="b-carte-fleuve">Grand Fleuve</button>
       <button class="btn or" id="b-carte-boutique" style="min-width: 0">Boutique</button>
+      <button class="rond" id="b-tuto" aria-label="Revoir le tutoriel">?</button>
       <button class="rond" id="b-son" aria-label="Son">♪</button>
     </div>
   </section>
@@ -455,6 +454,20 @@ function genLevel(w, n) {
   return { w, n, v: P.v, events: evs, pearls, L: x + 9, P };
 }
 
+// ---- Tutoriel : un court parcours expliqué, avec le repère de passage (absent des vrais niveaux)
+function genTuto() {
+  const ev = (x0, len, lo, hi, kind, msg) => ({ x0, x1: x0 + len, lo, hi, kind, w: 0, msg });
+  const events = [
+    ev(9, 1.6, 3, 4, 'bas', 'Un rocher ! Touche le haut de l’écran pour monter l’eau.'),
+    ev(17, 1.8, 0, 1, 'haut', 'Un pont bas ! Touche le bas de l’écran pour baisser l’eau.'),
+    ev(25, 1.6, 2, 3, 'fenetre', 'Un pont au-dessus d’un rocher : passe entre les deux.'),
+    ev(33, 1.0, 0, 0, 'ecluse', 'Une écluse : une seule hauteur passe. Tout en bas !'),
+    ev(41, 1.6, 4, 4, 'bas', 'Le plus haut rocher : monte l’eau au maximum, plusieurs touches de suite.'),
+  ];
+  const pearls = [{ x: 13, k: 3 }, { x: 13.6, k: 3 }, { x: 21, k: 1 }, { x: 29, k: 2 }, { x: 37, k: 0 }, { x: 45, k: 4 }];
+  return { w: 0, n: 0, v: 1.7, events, pearls, L: 48, tuto: true };
+}
+
 // ---- Grand Fleuve : génération par morceaux, toujours avec un passage garanti
 const FLEUVE = { BIOME_LEN: 260, V0: 2.0, ACC: 0.0028, VMAX: 6.5, COEUR: 280 };
 function fleuveSpeed(x) { return Math.min(FLEUVE.VMAX, FLEUVE.V0 + FLEUVE.ACC * Math.max(0, x)); }
@@ -511,14 +524,21 @@ function resize() {
 // ---- sauvegarde
 const SAVE = 'maree.v1';
 let save = { stars: Array(60).fill(0), pieces: 0, lacs: Array(5).fill(0), lacsEtoiles: Array(5).fill(0), fleuve: { m: 0, serie: 0 }, serieMax: 0, musique: true, sons: true,
-  owned: { 'coque-corail': 1, 'chap-capitaine': 1, 'drap-corail': 1, 'sill-ecume': 1 },
-  equip: { coque: 'coque-corail', chapeau: 'chap-capitaine', drapeau: 'drap-corail', sillage: 'sill-ecume', skin: null }, lagon: false, boites: 0 };
+  owned: { 'perso-loutre': 1, 'bat-corail': 1, 'chap-capitaine': 1, 'drap-corail': 1, 'sill-ecume': 1 },
+  equip: { perso: 'perso-loutre', bateau: 'bat-corail', chapeau: 'chap-capitaine', drapeau: 'drap-corail', sillage: 'sill-ecume' }, lagon: false, boites: 0, tuto: false };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE));
   if (s && Array.isArray(s.stars)) {
     save = { ...save, ...s, owned: { ...save.owned, ...(s.owned || {}) }, equip: { ...save.equip, ...(s.equip || {}) } };
     while (save.stars.length < 60) save.stars.push(0);
     if (s.pieces == null && s.pearls) save.pieces = s.pearls;   // anciennes perles converties en pièces
+    // anciens objets : coques et bateaux réunis dans « bateau »
+    const ancien = { 'coque-corail': 'bat-corail', 'coque-ocean': 'bat-ocean', 'coque-nuit': 'bat-nuit', 'skin-canard': 'bat-canard', 'skin-galion': 'bat-galion', 'skin-drakkar': 'bat-drakkar' };
+    for (const [a, b] of Object.entries(ancien)) if (save.owned[a]) save.owned[b] = 1;
+    if (!save.equip.bateau) save.equip.bateau = ancien[save.equip.skin] || ancien[save.equip.coque] || 'bat-corail';
+    if (!save.equip.perso) save.equip.perso = 'perso-loutre';
+    for (const k of ['perso', 'bateau', 'chapeau', 'drapeau', 'sillage']) if (!save.owned[save.equip[k]]) save.equip[k] = { perso: 'perso-loutre', bateau: 'bat-corail', chapeau: 'chap-capitaine', drapeau: 'drap-corail', sillage: 'sill-ecume' }[k];
+    if (save.stars[0] > 0) save.tuto = save.tuto || true;
   }
 } catch (e) {}
 function persist() { try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) {} }
@@ -535,32 +555,34 @@ const RARETES = [
   { nom: 'Épique', col: '#b89bff', prix: 5400, doublon: 270 },
   { nom: 'Légendaire', col: '#ffcf4a', prix: 13500, doublon: 900 },
 ];
-const CATS = { coque: 'Coques', chapeau: 'Chapeaux', drapeau: 'Fanions', sillage: 'Sillages', skin: 'Bateaux' };
+const CATS = { perso: 'Équipages', bateau: 'Bateaux', chapeau: 'Chapeaux', drapeau: 'Fanions', sillage: 'Sillages' };
 const ITEMS = [
-  { id: 'coque-corail', cat: 'coque', nom: 'Corail', rar: 0, c: ['#ff7a59', '#a63a24'], band: '#ffffff' },
-  { id: 'coque-ocean', cat: 'coque', nom: 'Océan', rar: 0, c: ['#3fa7e0', '#17507a'], band: '#ffffff' },
-  { id: 'coque-menthe', cat: 'coque', nom: 'Menthe', rar: 0, c: ['#5fd3a8', '#21795a'], band: '#ffffff' },
-  { id: 'coque-bonbon', cat: 'coque', nom: 'Bonbon', rar: 1, c: ['#ff9fd0', '#c4407e'], band: '#ffffff', rayures: true },
-  { id: 'coque-soleil', cat: 'coque', nom: 'Soleil', rar: 1, c: ['#ffd25a', '#c98a14'], band: '#ff7a59' },
-  { id: 'coque-nuit', cat: 'coque', nom: 'Nuit étoilée', rar: 2, c: ['#2b2f6b', '#120f30'], band: '#ffcf4a', etoiles: true },
+  { id: 'perso-loutre', cat: 'perso', nom: 'Lou la loutre', rar: 0 },
+  { id: 'perso-chat', cat: 'perso', nom: 'Moustache le chat', rar: 1 },
+  { id: 'perso-grenouille', cat: 'perso', nom: 'Gaston la grenouille', rar: 1 },
+  { id: 'perso-pingouin', cat: 'perso', nom: 'Pip le pingouin', rar: 2 },
+  { id: 'perso-renard', cat: 'perso', nom: 'Roux le renard', rar: 2 },
+  { id: 'perso-squelette', cat: 'perso', nom: 'Os le squelette', rar: 3 },
+  { id: 'bat-corail', cat: 'bateau', nom: 'Barque corail', rar: 0, c: ['#ff7a59', '#a63a24'], band: '#ffffff' },
+  { id: 'bat-ocean', cat: 'bateau', nom: 'Barque océan', rar: 0, c: ['#3fa7e0', '#17507a'], band: '#ffffff' },
+  { id: 'bat-nuit', cat: 'bateau', nom: 'Barque étoilée', rar: 1, c: ['#2b2f6b', '#120f30'], band: '#ffcf4a', etoiles: true },
+  { id: 'bat-baignoire', cat: 'bateau', nom: 'Baignoire', rar: 2 },
+  { id: 'bat-drakkar', cat: 'bateau', nom: 'Drakkar', rar: 2 },
+  { id: 'bat-canard', cat: 'bateau', nom: 'Canard géant', rar: 3 },
+  { id: 'bat-galion', cat: 'bateau', nom: 'Galion doré', rar: 3 },
   { id: 'chap-capitaine', cat: 'chapeau', nom: 'Casquette de capitaine', rar: 0 },
   { id: 'chap-paille', cat: 'chapeau', nom: 'Chapeau de paille', rar: 0 },
   { id: 'chap-bonnet', cat: 'chapeau', nom: 'Bonnet à pompon', rar: 1 },
   { id: 'chap-pirate', cat: 'chapeau', nom: 'Tricorne de pirate', rar: 2 },
   { id: 'chap-couronne', cat: 'chapeau', nom: 'Couronne royale', rar: 3 },
   { id: 'drap-corail', cat: 'drapeau', nom: 'Fanion corail', rar: 0 },
-  { id: 'drap-bleu', cat: 'drapeau', nom: 'Fanion bleu', rar: 0 },
   { id: 'drap-damier', cat: 'drapeau', nom: 'Damier', rar: 1 },
   { id: 'drap-arcenciel', cat: 'drapeau', nom: 'Arc-en-ciel', rar: 2 },
   { id: 'drap-pirate', cat: 'drapeau', nom: 'Pavillon pirate', rar: 2 },
   { id: 'sill-ecume', cat: 'sillage', nom: 'Écume', rar: 0 },
   { id: 'sill-bulles', cat: 'sillage', nom: 'Bulles', rar: 1 },
   { id: 'sill-coeurs', cat: 'sillage', nom: 'Cœurs', rar: 2 },
-  { id: 'sill-etoiles', cat: 'sillage', nom: 'Étoiles', rar: 2 },
   { id: 'sill-arcenciel', cat: 'sillage', nom: 'Arc-en-ciel', rar: 3 },
-  { id: 'skin-canard', cat: 'skin', nom: 'Canard géant', rar: 3 },
-  { id: 'skin-galion', cat: 'skin', nom: 'Galion doré', rar: 3 },
-  { id: 'skin-drakkar', cat: 'skin', nom: 'Drakkar', rar: 3 },
 ];
 const itemById = (id) => ITEMS.find((i) => i.id === id);
 // Boîtes : un joueur gagne environ 35 pièces par minute, menus compris (20 à 35 pièces relevées
@@ -732,6 +754,13 @@ function demarrerNiveau(i) {
   pretHint(lv.n === 0 ? hints[lv.w] : `Monde ${lv.w + 1} · niveau ${lv.n + 1} sur 10. Ne touche rien pour 3 étoiles.`);
   setTheme(lv.w === 5 ? 7 : 1 + lv.w);
 }
+function demarrerTuto() {
+  cur = -2; lac = null; lv = genTuto(); lv.biome = 0;
+  preparer(); paysage = paysagePrec = 0; paysageT = 1;
+  $('hud-nom').textContent = 'Tutoriel'; $('hud-sub').textContent = 'Apprends à commander l’eau';
+  pretHint('La capitaine avance toute seule : toi, tu montes et tu baisses l’eau.');
+  setTheme(1);
+}
 function demarrerFleuve() {
   cur = -1; lv = makeFleuve((Math.random() * 1e9) | 0); lv.biome = 0; fleuveExtend(lv, 60);
   paysage = paysagePrec = 0; paysageT = 1;
@@ -753,11 +782,18 @@ function majHud() {
   $('coeurs').innerHTML = '♥'.repeat(hearts) + '<i>' + '♥'.repeat(Math.max(0, 3 - hearts)) + '</i>';
   $('perles-n').textContent = perlesRun;
 }
-function partir() { if (mode !== 'pret') return; mode = 'jeu'; const g = $('hint').querySelector('.go'); if (g) g.remove(); setTimeout(() => { if (mode === 'jeu') show('hint', false); }, 3500); }
+function partir() { if (mode !== 'pret') return; mode = 'jeu'; const g = $('hint').querySelector('.go'); if (g) g.remove(); if (!lv.tuto) setTimeout(() => { if (mode === 'jeu') show('hint', false); }, 3500); }
 
 function terminer(gagne) {
   setAmb(0.02); hudVisible(false);
   save.serieMax = Math.max(save.serieMax, serieMax);
+  if (lv.tuto) {
+    save.tuto = true; save.pieces += perlesRun; persist();
+    $('v-etoiles').innerHTML = ''; $('v-titre').textContent = 'Tutoriel réussi !';
+    $('v-stats').innerHTML = '<li>Dans les vrais niveaux, plus de repère vert :</li><li>à toi de lire les obstacles.</li>';
+    $('b-suivant').textContent = 'Partir à l’aventure';
+    mode = 'victoire'; screens('ecran-victoire'); sfx.victoire(); confettis(100); setTheme(0); return;
+  }
   if (lv.endless) {
     const rec = bx > save.fleuve.m;
     if (rec) save.fleuve.m = bx;
@@ -827,9 +863,17 @@ function update(dt) {
     particles.push({ x: bx - 0.8, y: wy + (fancy ? 0.1 + Math.random() * 0.4 : -0.05), vx: -v * 0.3 - Math.random(), vy: fancy ? 0.3 + Math.random() * 0.5 : 0.6 + Math.random() * 0.6,
       life: fancy ? 1.0 : 0.6, r: 0.05 + Math.random() * 0.06, kind: fancy ? sil : 'goutte', g: fancy ? 0.4 : 6, hue: (clock * 120) % 360 });
   }
+  if (lv.tuto) {
+    const nx = lv.events.find((e) => !e.vu && e.x0 - bx < 6.5);
+    if (nx) { nx.vu = true; $('hint').textContent = nx.msg; show('hint', true); }
+    if (bx > lv.events[lv.events.length - 1].x1 + 1 && !lv.finVu) { lv.finVu = true; $('hint').textContent = 'Bravo ! Dans les vrais niveaux, tu n’auras plus le repère vert.'; }
+  }
   // obstacles
   for (const ev of lv.events) {
     const over = ev.x0 < bx + BOAT_HALF && ev.x1 > bx - BOAT_HALF;
+    if (over && !ev.hit && lv.tuto && boatHits(ev, bx, wy)) {   // tutoriel : on apprend, sans perdre de cœur
+      ev.hit = true; shake = 0.3; sfx.choc(); buzz(40); texte('Aïe ! Suis le repère vert', W * 0.3, SY(LY[4] + 1.6), '#ffffff', true); continue;
+    }
     if (over && !ev.hit && boatHits(ev, bx, wy) && invul <= 0) {
       ev.hit = true; coups++; hearts--; invul = 1.0; shake = 0.45; sfx.choc(); buzz([60, 30, 60]); flash('rgba(255,70,70,.45)'); casseSerie(); majHud();
       for (let i = 0; i < 18; i++) particles.push({ x: bx + 0.3, y: wy + 0.3, vx: (Math.random() - 0.3) * 4, vy: Math.random() * 4, life: 0.8, r: 0.05 + Math.random() * 0.07, kind: 'eclat', g: 9 });
@@ -1218,69 +1262,129 @@ function drawHat(s, id) {
     ctx.fillStyle = '#ffcf4a'; ctx.beginPath(); ctx.arc(s * 0.36, -s * 0.88, s * 0.03, 0, 2 * PI); ctx.fill();
   }
 }
-function drawOtter(s, t, hat, wave) {
-  ctx.fillStyle = '#8a5a3b'; ctx.beginPath(); ctx.ellipse(s * 0.32, -s * 0.36, s * 0.17, s * 0.2, 0, 0, 2 * PI); ctx.fill();
-  ctx.beginPath(); ctx.arc(s * 0.36, -s * 0.66, s * 0.19, 0, 2 * PI); ctx.fill();
-  ctx.fillStyle = '#e9cfa8'; ctx.beginPath(); ctx.ellipse(s * 0.42, -s * 0.6, s * 0.12, s * 0.1, 0, 0, 2 * PI); ctx.fill();
-  ctx.fillStyle = '#8a5a3b'; ctx.beginPath(); ctx.arc(s * 0.22, -s * 0.8, s * 0.05, 0, 2 * PI); ctx.arc(s * 0.48, -s * 0.8, s * 0.05, 0, 2 * PI); ctx.fill();
-  ctx.fillStyle = '#1e1a1a'; ctx.beginPath(); ctx.arc(s * 0.43, -s * 0.69, s * 0.028, 0, 2 * PI); ctx.arc(s * 0.31, -s * 0.69, s * 0.028, 0, 2 * PI); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(s * 0.47, -s * 0.62, s * 0.035, s * 0.025, 0, 0, 2 * PI); ctx.fill();
-  ctx.strokeStyle = 'rgba(30,26,26,.6)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(s * 0.5, -s * 0.6); ctx.lineTo(s * 0.62, -s * 0.63); ctx.moveTo(s * 0.5, -s * 0.58); ctx.lineTo(s * 0.62, -s * 0.56); ctx.stroke();
+// Équipages : tous tiennent dans la même place que Lou (x 0,17 à 0,56 ; jusqu'à 0,94 au-dessus de l'eau).
+function drawPerso(s, t, id, hat, wave) {
+  const P = (x, y) => [s * x, -s * y];
+  const disc = (x, y, r, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(s * x, -s * y, s * r, 0, 2 * PI); ctx.fill(); };
+  const ell = (x, y, rx, ry, c, rot = 0) => { ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(s * x, -s * y, s * rx, s * ry, rot, 0, 2 * PI); ctx.fill(); };
+  const tri = (pts, c) => { ctx.fillStyle = c; ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(...P(x, y)) : ctx.moveTo(...P(x, y)))); ctx.fill(); };
+  const yeux = (c = '#1e1a1a') => { disc(0.43, 0.69, 0.028, c); disc(0.31, 0.69, 0.028, c); };
+  let bras = '#8a5a3b';
+  if (id === 'perso-chat') {
+    bras = '#f0a24a';
+    ell(0.32, 0.36, 0.16, 0.2, '#f0a24a'); disc(0.36, 0.66, 0.18, '#f0a24a');
+    tri([[0.2, 0.74], [0.22, 0.88], [0.31, 0.79]], '#f0a24a'); tri([[0.42, 0.79], [0.5, 0.88], [0.52, 0.74]], '#f0a24a');
+    tri([[0.23, 0.76], [0.24, 0.84], [0.29, 0.79]], '#ffc9b0'); tri([[0.44, 0.79], [0.49, 0.84], [0.5, 0.76]], '#ffc9b0');
+    ctx.strokeStyle = 'rgba(180,100,30,.7)'; ctx.lineWidth = s * 0.025; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(...P(0.28 + i * 0.05, 0.84)); ctx.lineTo(...P(0.3 + i * 0.05, 0.76)); ctx.stroke(); }
+    ell(0.42, 0.6, 0.1, 0.07, '#fff3e0');
+    ctx.fillStyle = '#1e1a1a'; ctx.beginPath(); ctx.ellipse(...P(0.43, 0.69), s * 0.02, s * 0.035, 0, 0, 2 * PI); ctx.ellipse(...P(0.31, 0.69), s * 0.02, s * 0.035, 0, 0, 2 * PI); ctx.fill();
+    tri([[0.45, 0.63], [0.49, 0.63], [0.47, 0.6]], '#ff8fa3');
+    ctx.strokeStyle = 'rgba(40,30,30,.6)'; ctx.lineWidth = 1; ctx.beginPath(); for (const dy of [0.61, 0.58]) { ctx.moveTo(...P(0.5, dy)); ctx.lineTo(...P(0.64, dy + 0.02)); } ctx.stroke();
+  } else if (id === 'perso-grenouille') {
+    bras = '#5cb85c';
+    ell(0.33, 0.34, 0.17, 0.19, '#5cb85c'); ell(0.36, 0.6, 0.2, 0.15, '#5cb85c'); ell(0.35, 0.36, 0.1, 0.13, '#cfeec0');
+    disc(0.27, 0.75, 0.08, '#5cb85c'); disc(0.45, 0.75, 0.08, '#5cb85c'); disc(0.27, 0.76, 0.055, '#fff'); disc(0.45, 0.76, 0.055, '#fff');
+    disc(0.28, 0.76, 0.03, '#1e1a1a'); disc(0.46, 0.76, 0.03, '#1e1a1a');
+    ctx.strokeStyle = '#2f6b2f'; ctx.lineWidth = s * 0.025; ctx.beginPath(); ctx.arc(s * 0.38, -s * 0.6, s * 0.12, 0.2, PI - 0.6); ctx.stroke();
+    disc(0.27, 0.6, 0.025, '#ff9aa8'); disc(0.5, 0.6, 0.025, '#ff9aa8');
+  } else if (id === 'perso-pingouin') {
+    bras = '#1e2430';
+    ell(0.32, 0.36, 0.17, 0.21, '#1e2430'); ell(0.35, 0.34, 0.11, 0.16, '#ffffff');
+    disc(0.36, 0.66, 0.18, '#1e2430'); ell(0.4, 0.63, 0.12, 0.12, '#ffffff');
+    disc(0.36, 0.69, 0.025, '#1e1a1a'); disc(0.46, 0.69, 0.025, '#1e1a1a');
+    tri([[0.43, 0.63], [0.58, 0.6], [0.43, 0.57]], '#ff9a2e');
+    disc(0.32, 0.62, 0.025, '#ffb3c1');
+  } else if (id === 'perso-renard') {
+    bras = '#e8702a';
+    ell(0.32, 0.36, 0.16, 0.2, '#e8702a'); ell(0.34, 0.33, 0.09, 0.13, '#fff3e0');
+    disc(0.34, 0.67, 0.17, '#e8702a');
+    tri([[0.2, 0.72], [0.22, 0.9], [0.32, 0.8]], '#e8702a'); tri([[0.4, 0.8], [0.5, 0.9], [0.52, 0.72]], '#e8702a');
+    tri([[0.23, 0.75], [0.24, 0.86], [0.3, 0.8]], '#3a2418'); tri([[0.42, 0.8], [0.48, 0.86], [0.49, 0.75]], '#3a2418');
+    tri([[0.36, 0.66], [0.62, 0.6], [0.36, 0.54]], '#fff3e0'); disc(0.61, 0.6, 0.025, '#1e1a1a');
+    yeux();
+  } else if (id === 'perso-squelette') {
+    bras = '#ece8dc';
+    // cage thoracique
+    ctx.strokeStyle = '#ece8dc'; ctx.lineWidth = s * 0.035; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(...P(0.33, 0.48)); ctx.lineTo(...P(0.33, 0.18)); ctx.stroke();
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(s * 0.33, -s * (0.42 - i * 0.08), s * (0.13 - i * 0.015), PI * 0.15, PI * 0.85, true); ctx.stroke(); }
+    // crâne
+    disc(0.37, 0.67, 0.18, '#f4f0e4'); ell(0.4, 0.55, 0.11, 0.07, '#f4f0e4');
+    ell(0.31, 0.69, 0.05, 0.055, '#1e1a1a'); ell(0.45, 0.69, 0.05, 0.055, '#1e1a1a');
+    disc(0.31, 0.68, 0.015, '#9fe8ff'); disc(0.45, 0.68, 0.015, '#9fe8ff');
+    tri([[0.37, 0.62], [0.4, 0.62], [0.385, 0.59]], '#1e1a1a');
+    ctx.strokeStyle = '#1e1a1a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(...P(0.32, 0.53)); ctx.lineTo(...P(0.49, 0.53));
+    for (let i = 0; i < 5; i++) { ctx.moveTo(...P(0.33 + i * 0.035, 0.56)); ctx.lineTo(...P(0.33 + i * 0.035, 0.5)); } ctx.stroke();
+  } else {
+    ell(0.32, 0.36, 0.17, 0.2, '#8a5a3b'); disc(0.36, 0.66, 0.19, '#8a5a3b'); ell(0.42, 0.6, 0.12, 0.1, '#e9cfa8');
+    disc(0.22, 0.8, 0.05, '#8a5a3b'); disc(0.48, 0.8, 0.05, '#8a5a3b');
+    yeux(); ell(0.47, 0.62, 0.035, 0.025, '#1e1a1a');
+    ctx.strokeStyle = 'rgba(30,26,26,.6)'; ctx.lineWidth = 1; ctx.beginPath(); for (const dy of [0.6, 0.58]) { ctx.moveTo(...P(0.5, dy)); ctx.lineTo(...P(0.62, dy + (dy === 0.6 ? 0.03 : -0.02))); } ctx.stroke();
+  }
   drawHat(s, hat);
-  if (wave) { ctx.strokeStyle = '#8a5a3b'; ctx.lineWidth = s * 0.07; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(s * 0.42, -s * 0.38); ctx.lineTo(s * 0.62, -s * 0.62 - Math.sin(t * 10) * s * 0.06); ctx.stroke(); }
+  if (wave) { ctx.strokeStyle = bras; ctx.lineWidth = s * 0.07; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(s * 0.42, -s * 0.38); ctx.lineTo(s * 0.62, -s * 0.62 - Math.sin(t * 10) * s * 0.06); ctx.stroke(); }
 }
 function hullPath(s) { ctx.beginPath(); ctx.moveTo(-s * 0.8, -s * 0.22); ctx.lineTo(s * 0.85, -s * 0.22); ctx.quadraticCurveTo(s * 0.7, s * 0.42, s * 0.2, s * 0.45); ctx.lineTo(-s * 0.45, s * 0.45); ctx.quadraticCurveTo(-s * 0.75, s * 0.3, -s * 0.8, -s * 0.22); ctx.closePath(); }
+// Bateaux : tous restent dans la silhouette de BOAT_PARTS (coque ≤ 0,22, cabine ≤ 0,72, mât ≤ 1,15).
 function drawBoat(px, sy, t, hurt, look) {
   look = look || save.equip;
-  const s = S, coque = itemById(look.coque) || ITEMS[0], skin = look.skin;
+  const s = S, bat = itemById(look.bateau) || itemById('bat-corail');
   ctx.save(); ctx.translate(px, sy + Math.sin(t * 3) * 2); ctx.rotate(tilt * 0.6 + Math.sin(t * 2.1) * 0.03);
   if (hurt > 0 && Math.floor(t * 14) % 2 === 0) ctx.globalAlpha = 0.45;
   const salut = serie >= 10 && mode === 'jeu';
-  if (skin === 'skin-galion') {
+  const perso = () => drawPerso(s, t, look.perso, look.chapeau, salut);
+  if (bat.id === 'bat-galion') {
     ctx.fillStyle = '#6b4a32'; ctx.fillRect(s * 0.08, -s * 1.15, s * 0.05, s * 0.95);
     ctx.fillStyle = '#fff8e8'; ctx.beginPath(); ctx.moveTo(s * 0.13, -s * 1.08); ctx.quadraticCurveTo(s * 0.45, -s * 0.9, s * 0.13, -s * 0.5); ctx.fill();
     ctx.strokeStyle = '#ffcf4a'; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = '#8a5a2b'; ctx.fillRect(-s * 0.52, -s * 0.66, s * 0.48, s * 0.44); ctx.fillStyle = '#ffcf4a'; ctx.fillRect(-s * 0.52, -s * 0.7, s * 0.48, s * 0.06);
     ctx.fillStyle = '#ffe9a6'; for (let i = 0; i < 3; i++) ctx.fillRect(-s * (0.46 - i * 0.15), -s * 0.52, s * 0.08, s * 0.1);
-    drawOtter(s, t, look.chapeau, salut);
+    perso();
     const g = ctx.createLinearGradient(0, -s * 0.25, 0, s * 0.45); g.addColorStop(0, '#ffe07a'); g.addColorStop(1, '#b07a12');
     ctx.fillStyle = g; hullPath(s); ctx.fill(); ctx.fillStyle = '#8a5a2b'; ctx.fillRect(-s * 0.78, -s * 0.22, s * 1.62, s * 0.08);
     ctx.fillStyle = '#6b3f12'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(-s * 0.5 + i * s * 0.3, s * 0.06, s * 0.05, 0, 2 * PI); ctx.fill(); }
-  } else if (skin === 'skin-drakkar') {
+  } else if (bat.id === 'bat-drakkar') {
     ctx.fillStyle = '#6b4a32'; ctx.fillRect(s * 0.08, -s * 1.15, s * 0.05, s * 0.95);
     ctx.save(); ctx.beginPath(); ctx.rect(s * 0.13, -s * 1.08, s * 0.34, s * 0.5); ctx.clip();
     for (let i = 0; i < 5; i++) { ctx.fillStyle = i % 2 ? '#e63946' : '#fff3e0'; ctx.fillRect(s * 0.13, -s * 1.08 + i * s * 0.1, s * 0.34, s * 0.1); } ctx.restore();
-    drawOtter(s, t, look.chapeau, salut);
+    perso();
     const g = ctx.createLinearGradient(0, -s * 0.25, 0, s * 0.45); g.addColorStop(0, '#a0703f'); g.addColorStop(1, '#5a3a1e');
     ctx.fillStyle = g; hullPath(s); ctx.fill();
     ctx.strokeStyle = 'rgba(40,25,10,.5)'; ctx.lineWidth = 1.5; for (let i = 1; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-s * 0.75, -s * 0.22 + i * s * 0.18); ctx.lineTo(s * 0.75, -s * 0.22 + i * s * 0.18); ctx.stroke(); }
     ['#e63946', '#ffcf4a', '#4fb3ff', '#e63946', '#ffcf4a'].forEach((c, i) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(-s * 0.6 + i * s * 0.3, -s * 0.12, s * 0.09, 0, 2 * PI); ctx.fill(); ctx.fillStyle = '#5a3a1e'; ctx.beginPath(); ctx.arc(-s * 0.6 + i * s * 0.3, -s * 0.12, s * 0.025, 0, 2 * PI); ctx.fill(); });
     ctx.fillStyle = '#7a4e26'; ctx.beginPath(); ctx.moveTo(s * 0.7, -s * 0.22); ctx.quadraticCurveTo(s * 0.95, -s * 0.3, s * 0.86, -s * 0.05); ctx.lineTo(s * 0.8, -s * 0.14); ctx.fill();
-  } else if (skin === 'skin-canard') {
-    drawFlag(s, t, look.drapeau);
-    drawOtter(s, t, look.chapeau, salut);
+  } else if (bat.id === 'bat-canard') {
+    drawFlag(s, t, look.drapeau); perso();
     const g = ctx.createLinearGradient(0, -s * 0.3, 0, s * 0.45); g.addColorStop(0, '#ffe46a'); g.addColorStop(1, '#e0a91e');
     ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-s * 0.8, -s * 0.2); ctx.quadraticCurveTo(-s * 0.95, -s * 0.05, -s * 0.72, s * 0.05); ctx.quadraticCurveTo(-s * 0.6, s * 0.45, 0, s * 0.45); ctx.quadraticCurveTo(s * 0.7, s * 0.45, s * 0.85, -s * 0.05); ctx.lineTo(s * 0.85, -s * 0.22); ctx.lineTo(-s * 0.8, -s * 0.22); ctx.fill();
-    ctx.fillStyle = '#ffe46a'; ctx.beginPath(); ctx.ellipse(-s * 0.35, -s * 0.05, s * 0.28, s * 0.12, -0.2, 0, 2 * PI); ctx.fill();   // aile
+    ctx.fillStyle = '#ffe46a'; ctx.beginPath(); ctx.ellipse(-s * 0.35, -s * 0.05, s * 0.28, s * 0.12, -0.2, 0, 2 * PI); ctx.fill();
     ctx.strokeStyle = 'rgba(200,140,20,.6)'; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = '#1e1a1a'; ctx.beginPath(); ctx.arc(s * 0.68, -s * 0.1, s * 0.04, 0, 2 * PI); ctx.fill();
     ctx.fillStyle = '#ff9a2e'; ctx.beginPath(); ctx.moveTo(s * 0.82, -s * 0.08); ctx.lineTo(s * 1.0, -s * 0.02); ctx.lineTo(s * 0.82, s * 0.04); ctx.fill();
+  } else if (bat.id === 'bat-baignoire') {
+    drawFlag(s, t, look.drapeau);
+    // pommeau de douche à l'arrière, mousse qui déborde
+    ctx.strokeStyle = '#c9d3dc'; ctx.lineWidth = s * 0.05; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-s * 0.7, -s * 0.2); ctx.lineTo(-s * 0.7, -s * 0.62); ctx.quadraticCurveTo(-s * 0.7, -s * 0.72, -s * 0.55, -s * 0.7); ctx.stroke();
+    ctx.fillStyle = '#c9d3dc'; ctx.beginPath(); ctx.ellipse(-s * 0.5, -s * 0.66, s * 0.07, s * 0.04, 0.4, 0, 2 * PI); ctx.fill();
+    perso();
+    ctx.fillStyle = '#ffffff'; for (let i = 0; i < 7; i++) { ctx.beginPath(); ctx.arc(-s * 0.6 + i * s * 0.22, -s * 0.24 - (i % 2) * s * 0.04, s * 0.11, 0, 2 * PI); ctx.fill(); }
+    const g = ctx.createLinearGradient(0, -s * 0.25, 0, s * 0.4); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#c6d6e4');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-s * 0.8, -s * 0.22); ctx.lineTo(s * 0.85, -s * 0.22); ctx.quadraticCurveTo(s * 0.85, s * 0.3, s * 0.5, s * 0.32); ctx.lineTo(-s * 0.5, s * 0.32); ctx.quadraticCurveTo(-s * 0.8, s * 0.3, -s * 0.8, -s * 0.22); ctx.fill();
+    ctx.fillStyle = '#d4a63a'; ctx.fillRect(-s * 0.5, s * 0.3, s * 0.1, s * 0.12); ctx.fillRect(s * 0.4, s * 0.3, s * 0.1, s * 0.12);
+    ctx.fillStyle = '#ffe46a'; ctx.beginPath(); ctx.ellipse(s * 0.66, -s * 0.36, s * 0.1, s * 0.07, 0, 0, 2 * PI); ctx.fill(); ctx.beginPath(); ctx.arc(s * 0.72, -s * 0.45, s * 0.05, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#ff9a2e'; ctx.beginPath(); ctx.moveTo(s * 0.76, -s * 0.45); ctx.lineTo(s * 0.82, -s * 0.43); ctx.lineTo(s * 0.76, -s * 0.41); ctx.fill();
   } else {
     drawFlag(s, t, look.drapeau);
     ctx.fillStyle = '#f4efe6'; ctx.fillRect(-s * 0.48, -s * 0.62, s * 0.42, s * 0.42);
-    ctx.fillStyle = coque.c[0]; ctx.fillRect(-s * 0.52, -s * 0.72, s * 0.5, s * 0.1);
+    ctx.fillStyle = bat.c[0]; ctx.fillRect(-s * 0.52, -s * 0.72, s * 0.5, s * 0.1);
     ctx.fillStyle = '#9fd8ff'; ctx.beginPath(); ctx.arc(-s * 0.27, -s * 0.42, s * 0.09, 0, 2 * PI); ctx.fill();
     ctx.strokeStyle = '#d4a63a'; ctx.lineWidth = 2; ctx.stroke();
-    drawOtter(s, t, look.chapeau, salut);
+    perso();
     const hull = ctx.createLinearGradient(0, -s * 0.25, 0, s * 0.45);
-    hull.addColorStop(0, coque.c[0]); hull.addColorStop(0.55, mix(coque.c[0], coque.c[1], 0.4)); hull.addColorStop(1, coque.c[1]);
+    hull.addColorStop(0, bat.c[0]); hull.addColorStop(0.55, mix(bat.c[0], bat.c[1], 0.4)); hull.addColorStop(1, bat.c[1]);
     ctx.fillStyle = hull; hullPath(s); ctx.fill();
-    ctx.save(); hullPath(s); ctx.clip();
-    if (coque.rayures) { ctx.fillStyle = 'rgba(255,255,255,.45)'; for (let i = -6; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i * s * 0.18, -s * 0.3); ctx.lineTo(i * s * 0.18 + s * 0.08, -s * 0.3); ctx.lineTo(i * s * 0.18 - s * 0.12, s * 0.5); ctx.lineTo(i * s * 0.18 - s * 0.2, s * 0.5); ctx.fill(); } }
-    if (coque.etoiles) { ctx.fillStyle = '#fff6c4'; for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc(-s * 0.7 + hash(i) * s * 1.4, -s * 0.05 + hash(i + 4) * s * 0.4, s * (0.015 + 0.02 * hash(i + 2)), 0, 2 * PI); ctx.fill(); } }
-    ctx.restore();
-    ctx.fillStyle = coque.band; ctx.fillRect(-s * 0.78, -s * 0.22, s * 1.62, s * 0.09);
+    if (bat.etoiles) { ctx.save(); hullPath(s); ctx.clip(); ctx.fillStyle = '#fff6c4'; for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc(-s * 0.7 + hash(i) * s * 1.4, -s * 0.05 + hash(i + 4) * s * 0.4, s * (0.015 + 0.02 * hash(i + 2)), 0, 2 * PI); ctx.fill(); } ctx.restore(); }
+    ctx.fillStyle = bat.band; ctx.fillRect(-s * 0.78, -s * 0.22, s * 1.62, s * 0.09);
     ctx.fillStyle = '#ffcf4a'; ctx.fillRect(-s * 0.7, s * 0.02, s * 1.35, s * 0.05);
   }
   ctx.restore();
@@ -1356,7 +1460,7 @@ function renderJeu() {
   ctx = main;
   if (n) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(calque, 0, 0); ctx.restore(); }
   for (const ev of lv.events) { const x0 = SX(ev.x0, cx), x1 = SX(ev.x1, cx); if (x1 < -S * 2 || x0 > W + S * 2) continue; if (ev.hi < 4) drawHaut(ev, ev.bird ? 'mouettes' : VISUELS[ev.w][1], x0, x1); }
-  if (mode === 'jeu' || mode === 'pret') drawPassage(cx);
+  if (lv.tuto && (mode === 'jeu' || mode === 'pret')) drawPassage(cx);
   if (lv.endless && save.fleuve.m > 0) drawRecord(cx);
   drawParticles(cx);
   ctx.restore();
@@ -1583,7 +1687,7 @@ function renderCarte() {
 function ouvrirCarte(focusIdx) {
   mode = 'carte'; lv = null; hudVisible(false); screens('ecran-carte'); show('fiche', false); carteSel = null;
   let lastOpen = derniereOuverte();
-  focusCarte(focusIdx ?? lastOpen);
+  focusCarte(focusIdx != null && focusIdx >= 0 ? focusIdx : lastOpen);
   $('carte-etoiles').textContent = totalEtoiles(); $('carte-perles').textContent = save.pieces;
   setTheme(0); setAmb(0.03);
 }
@@ -1731,21 +1835,21 @@ function ouvrirBoutique(tab) {
   mode = 'boutique'; lv = null; lac = null; hudVisible(false); screens('ecran-boutique'); renderBoutique(); setTheme(0); setAmb(0.02);
 }
 // Dessine le bateau (avec un équipement donné) dans un petit canvas de la boutique.
-function dessinerApercu(canvas, look, bg) {
+function dessinerApercu(canvas, look, bg, zoom = 1) {
   const w = canvas.width, h = canvas.height, c2 = canvas.getContext('2d');
   const sv = [ctx, S, tilt, serie];
-  ctx = c2; S = h * 0.36; tilt = 0; serie = 0;
+  ctx = c2; S = h * 0.36 * zoom; tilt = 0; serie = 0;
   const g = c2.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, bg ? bg[0] : '#8fd3ff'); g.addColorStop(0.62, bg ? bg[1] : '#dff3ff'); g.addColorStop(0.62, '#3fa7e0'); g.addColorStop(1, '#1d6aa3');
   c2.fillStyle = g; c2.fillRect(0, 0, w, h);
   c2.strokeStyle = 'rgba(255,255,255,.7)'; c2.lineWidth = 2; c2.beginPath(); for (let x = 0; x <= w; x += 6) c2.lineTo(x, h * 0.62 + Math.sin(x * 0.08) * 2); c2.stroke();
   if (look.sillage && look.sillage !== 'sill-ecume') for (let i = 0; i < 6; i++) trailShape(look.sillage, w * (0.32 - i * 0.055), h * (0.6 - (i % 2) * 0.08 - i * 0.02), S * 0.11, 1 - i * 0.12, i * 50);
-  drawBoat(w * 0.56, h * 0.64, 1.2, 0, look);
+  drawBoat(w * 0.56 - (zoom - 1) * S * 0.5, h * 0.64 + (zoom - 1) * S * 0.55, 1.2, 0, look);
   [ctx, S, tilt, serie] = sv;
 }
+const zoomDe = (it) => (it.cat === 'perso' || it.cat === 'chapeau' ? 1.7 : 1);
 function lookAvec(it) {
-  const l = { ...save.equip };
-  if (it.cat === 'skin') l.skin = it.id; else { l[it.cat] = it.id; if (it.cat === 'coque') l.skin = null; }
+  const l = { ...save.equip }; l[it.cat] = it.id;
   return l;
 }
 const pct = (v) => String(v).replace('.', ',') + '\u00a0%';
@@ -1772,7 +1876,7 @@ function renderBoutique() {
     const garde = boutTab === 'garde';
     if (garde) {
       const top = el('div', 'monde-carte'); const cv2 = document.createElement('canvas'); cv2.width = 560; cv2.height = 300;
-      top.append(cv2); top.append(el('p', 'note', 'Touche un objet pour l’équiper. Les bateaux complets remplacent la coque.')); C.append(top); dessinerApercu(cv2, save.equip);
+      top.append(cv2); top.append(el('p', 'note', 'Touche un objet pour l’équiper : équipage, bateau, chapeau, fanion et sillage se combinent.')); C.append(top); dessinerApercu(cv2, save.equip);
     } else C.append(el('p', 'note', 'Achat direct : plus cher que les boîtes, mais tu choisis ton objet.'));
     for (const cat of Object.keys(CATS)) {
       const items = ITEMS.filter((it) => it.cat === cat && (garde ? save.owned[it.id] : true));
@@ -1781,7 +1885,7 @@ function renderBoutique() {
       const grid = el('div', 'cartes');
       for (const it of items) {
         const R = RARETES[it.rar], owned = !!save.owned[it.id];
-        const equipe = cat === 'skin' ? save.equip.skin === it.id : save.equip[cat] === it.id && !(cat === 'coque' && save.equip.skin);
+        const equipe = save.equip[cat] === it.id;
         const card = el('button', 'carte-obj' + (garde && equipe ? ' equipe' : ''));
         const cv2 = document.createElement('canvas'); cv2.width = 240; cv2.height = 180;
         card.append(cv2, el('span', 'rar', R.nom), el('span', 'nom', it.nom));
@@ -1792,7 +1896,7 @@ function renderBoutique() {
           if (owned || save.pieces < R.prix) { b.style.opacity = owned ? 0.6 : 0.5; }
           card.append(b); card.onclick = () => { if (!owned && save.pieces >= R.prix) acheter(it); };
         }
-        grid.append(card); dessinerApercu(cv2, lookAvec(it));
+        grid.append(card); dessinerApercu(cv2, lookAvec(it), null, zoomDe(it));
       }
       C.append(grid);
     }
@@ -1814,8 +1918,7 @@ function renderBoutique() {
   }
 }
 function equiper(it) {
-  if (it.cat === 'skin') save.equip.skin = save.equip.skin === it.id ? null : it.id;
-  else { save.equip[it.cat] = it.id; if (it.cat === 'coque') save.equip.skin = null; }
+  save.equip[it.cat] = it.id;
   persist(); sfx.clic(); renderBoutique();
 }
 function acheter(it) {
@@ -1850,7 +1953,7 @@ function montrerLot(it, doublon, achat) {
   $('lot-msg').textContent = doublon ? `Déjà dans ta collection : +${R.doublon} pièces.` : achat ? 'Ajouté à ta garde-robe.' : `Nouveau ! ${CATS[it.cat]} · ajouté à ta garde-robe.`;
   $('b-lot-equiper').hidden = doublon;
   show('lot', false); void $('lot').offsetWidth; show('lot', true);
-  dessinerApercu($('lot-cv'), lookAvec(it));
+  dessinerApercu($('lot-cv'), lookAvec(it), null, zoomDe(it));
 }
 function renderFondBoutique() {
   const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0e2a44'); g.addColorStop(1, '#0f4a78');
@@ -1921,15 +2024,16 @@ window.addEventListener('keydown', (ev) => {
 function pause() { if (mode === 'jeu' || mode === 'pret') { lv.modeAvant = mode; mode = 'pause'; setAmb(0); screens('ecran-pause'); } else if (mode === 'lac') { lac.pause = true; mode = 'pause'; screens('ecran-pause'); } }
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
-const rejouer = () => { if (lac && !lv) demarrerLac(lac.w); else if (cur < 0) demarrerFleuve(); else demarrerNiveau(cur); };
-$('b-carte').onclick = () => { audioInit(); sfx.carte(); ouvrirCarte(); };
+const rejouer = () => { if (lac && !lv) demarrerLac(lac.w); else if (cur === -2) demarrerTuto(); else if (cur < 0) demarrerFleuve(); else demarrerNiveau(cur); };
+$('b-carte').onclick = () => { audioInit(); sfx.carte(); if (!save.tuto) demarrerTuto(); else ouvrirCarte(); };
 $('b-fleuve').onclick = () => { audioInit(); sfx.clic(); lac = null; demarrerFleuve(); };
 $('b-boutique-titre').onclick = () => { audioInit(); sfx.clic(); ouvrirBoutique(); };
+$('b-tuto').onclick = () => { sfx.clic(); demarrerTuto(); };
 $('b-carte-boutique').onclick = () => { sfx.clic(); ouvrirBoutique(); };
 $('b-bout-retour').onclick = () => { sfx.clic(); ouvrirCarte(); };
 for (const b of $('onglets').children) b.onclick = () => { boutTab = b.dataset.tab; sfx.clic(); renderBoutique(); };
 $('b-lot-ok').onclick = () => { mode = 'boutique'; screens('ecran-boutique'); renderBoutique(); };
-$('b-lot-equiper').onclick = () => { if (dernierLot) { const it = dernierLot; if (it.cat === 'skin') save.equip.skin = it.id; else { save.equip[it.cat] = it.id; if (it.cat === 'coque') save.equip.skin = null; } persist(); } sfx.clic(); mode = 'boutique'; boutTab = 'garde'; screens('ecran-boutique'); renderBoutique(); };
+$('b-lot-equiper').onclick = () => { if (dernierLot) { save.equip[dernierLot.cat] = dernierLot.id; persist(); } sfx.clic(); mode = 'boutique'; boutTab = 'garde'; screens('ecran-boutique'); renderBoutique(); };
 $('b-carte-fleuve').onclick = () => { sfx.clic(); lac = null; demarrerFleuve(); };
 $('b-carte-retour').onclick = () => { mode = 'titre'; lv = null; screens('ecran-titre'); titreInfo(); };
 $('b-fiche-jouer').onclick = () => { if (!carteSel) return; sfx.clic(); if (carteSel.boutique) { ouvrirBoutique(carteSel.boutique); return; } if (carteSel.lac != null) { lv = null; demarrerLac(carteSel.lac); } else { lac = null; demarrerNiveau(carteSel.idx); } };
@@ -1939,13 +2043,13 @@ $('b-recommencer').onclick = rejouer;
 $('b-p-carte').onclick = () => ouvrirCarte(cur >= 0 ? cur : undefined);
 $('b-rejouer').onclick = rejouer; $('b-reessayer').onclick = rejouer;
 $('b-v-carte').onclick = () => ouvrirCarte(cur); $('b-d-carte').onclick = () => ouvrirCarte(cur); $('b-fin-carte').onclick = () => ouvrirCarte();
-$('b-suivant').onclick = () => { if (cur === 49 || cur === 59) ouvrirCarte(cur); else if (cur % 10 === 9) { ouvrirCarte(cur + 1); banner(MONDES[Math.floor((cur + 1) / 10)].nom, 'Nouveau monde'); sfx.palier(10); } else demarrerNiveau(cur + 1); };
+$('b-suivant').onclick = () => { if (cur === -2) ouvrirCarte(0); else if (cur === 49 || cur === 59) ouvrirCarte(cur); else if (cur % 10 === 9) { ouvrirCarte(cur + 1); banner(MONDES[Math.floor((cur + 1) / 10)].nom, 'Nouveau monde'); sfx.palier(10); } else demarrerNiveau(cur + 1); };
 function majBoutonsSon() { $('b-musique').textContent = `Musique : ${save.musique ? 'oui' : 'non'}`; $('b-sons').textContent = `Sons : ${save.sons ? 'oui' : 'non'}`; $('b-son').style.opacity = save.musique || save.sons ? 1 : 0.5; }
 function appliquerSon() { if (Snd.ac) { Snd.mus.gain.setTargetAtTime(save.musique ? 0.32 : 0, Snd.ac.currentTime, 0.1); Snd.sfx.gain.setTargetAtTime(save.sons ? 0.8 : 0, Snd.ac.currentTime, 0.1); } majBoutonsSon(); persist(); }
 $('b-musique').onclick = () => { save.musique = !save.musique; appliquerSon(); };
 $('b-sons').onclick = () => { save.sons = !save.sons; appliquerSon(); };
 $('b-son').onclick = () => { audioInit(); const on = !(save.musique || save.sons); save.musique = on; save.sons = on; appliquerSon(); };
-function titreInfo() { $('titre-info').textContent = `${totalEtoiles()} ★ · ${save.pieces} pièces · record du Grand Fleuve : ${Math.floor(save.fleuve.m)} m`; }
+function titreInfo() {}
 
 window.addEventListener('resize', () => { resize(); if (mode === 'carte') clampCarte(); });
 resize(); buildCarte(); titreInfo(); majBoutonsSon();
