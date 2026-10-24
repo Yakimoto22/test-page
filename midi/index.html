@@ -122,7 +122,7 @@ h2 { font-size: 40px; line-height: 1; }
 .record { margin: 0; color: var(--or); font-weight: 600; font-size: 17px; }
 
 #banniere {
-  position: absolute; left: 0; right: 0; top: 18%; text-align: center; pointer-events: none;
+  position: absolute; left: 0; right: 0; top: 25%; text-align: center; pointer-events: none;
   animation: banniere 2.8s ease-in-out forwards; text-shadow: 0 2px 10px rgba(10,6,20,.7), 0 0 2px rgba(10,6,20,.8);
 }
 #banniere > * { width: fit-content; margin-inline: auto; }
@@ -131,17 +131,37 @@ h2 { font-size: 40px; line-height: 1; }
 #banniere b { display: block; font: 800 clamp(28px, 9vw, 44px)/1.05 var(--f-titre); color: var(--or); max-width: 92vw; text-wrap: balance; }
 @keyframes banniere { 0% { opacity: 0; transform: translateY(8px); } 15%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 
+/* Série parfaite : compteur central qui grossit et change de couleur par paliers */
 #serie {
-  position: absolute; left: 50%; top: 66px; transform: translateX(-50%); pointer-events: none;
-  background: rgba(30,22,48,.6); color: var(--os); border-radius: 999px; padding: 4px 14px;
-  font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  position: absolute; left: 50%; top: 64px; transform: translateX(-50%); pointer-events: none;
+  display: grid; justify-items: center; gap: 2px; min-width: 120px;
+  background: rgba(30,22,48,.62); border-radius: 18px; padding: 6px 16px 8px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; transition: box-shadow .3s, background .3s;
+  --ton: var(--os);
 }
-#serie b { color: var(--or); font-size: 18px; }
-#serie.pop { animation: pop .25s ease-out; }
-#serie.zero { opacity: .55; }
-@keyframes pop { 40% { transform: translateX(-50%) scale(1.25); } }
+#serie .lbl { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--brume); }
+#serie b { font: 800 34px/1 var(--f-titre); color: var(--ton); transition: color .3s; }
+#serie .jauge { width: 100%; height: 5px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+#serie .jauge i { display: block; height: 100%; width: 0; background: var(--ton); border-radius: 3px; transition: width .25s ease-out, background .3s; }
+#serie .info { font-size: 11px; color: var(--brume); }
+#serie.t1 { --ton: #ffc94a; }
+#serie.t2 { --ton: #ff8a3d; box-shadow: 0 0 18px rgba(255,138,61,.45); }
+#serie.t3 { --ton: #ff4d6d; box-shadow: 0 0 24px rgba(255,77,109,.55); }
+#serie.t4 { --ton: #c9a0ff; box-shadow: 0 0 30px rgba(201,160,255,.7); animation: lueur 1.2s ease-in-out infinite; }
+#serie.zero b { color: var(--brume); }
+#serie.pop b { animation: pop .28s ease-out; }
+@keyframes pop { 40% { transform: scale(1.35); } }
+@keyframes lueur { 50% { box-shadow: 0 0 44px rgba(201,160,255,.95); } }
+#serie-perdue {
+  position: absolute; left: 50%; top: 150px; transform: translateX(-50%); pointer-events: none;
+  font: 800 22px/1 var(--f-titre); color: #ff8fa3; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+  animation: perdue 1.4s ease-out forwards;
+}
+@keyframes perdue { 0% { opacity: 1; transform: translateX(-50%); } 10%, 30% { transform: translateX(-46%); } 20%, 40% { transform: translateX(-54%); } 100% { opacity: 0; transform: translate(-50%, 18px); } }
+#flash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 30%, rgba(255,214,120,.55), rgba(255,214,120,0) 70%); animation: flash .7s ease-out forwards; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
 
-@media (prefers-reduced-motion: reduce) { #hint .go, #banniere, #serie.pop { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #hint .go, #banniere, #serie.pop b, #serie.t4, #serie-perdue, #flash { animation: none; } }
 </style>
 <!--WRAP-HEAD-END-->
 </head>
@@ -157,7 +177,13 @@ h2 { font-size: 40px; line-height: 1; }
   </div>
   <div id="hint" hidden></div>
   <div id="banniere" hidden><small id="banniere-label">Biome</small><b id="banniere-nom">La forêt</b></div>
-  <div id="serie" hidden>Série <b id="serie-n">0</b></div>
+  <div id="serie" hidden>
+    <span class="lbl">Série</span><b id="serie-n">0</b>
+    <span class="jauge"><i id="serie-jauge"></i></span>
+    <span class="info" id="serie-info">prochain palier : 5</span>
+  </div>
+  <div id="serie-perdue" hidden></div>
+  <div id="flash" hidden></div>
 
   <section class="ecran clair" id="ecran-titre">
     <h1>Midi</h1>
@@ -408,8 +434,6 @@ const INF = {
   VMAX: 7,           // vitesse maximale d'Igor (m/s)
   TOL0: 0.0, TOL1: 0.3, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
   SWAP: 1.1,         // marge sur la largeur d'objet nécessaire pour changer le soleil de côté
-  REST: 0.3,         // chance de placer deux grands objets de suite (pause ou relais)
-  PUDDLE0: 0.25, PUDDLE1: 0.3,  // chance d'une flaque sous un grand objet (augmente avec la distance)
   WRONG: 1.4,        // secondes de plein soleil au minimum si le soleil est du mauvais côté
   HEAL: 0.8,         // à l'ombre, la vie remonte à 80 % de la vitesse du monde 1
   BUBBLE: 100 / 3,   // vie rendue par une bulle
@@ -456,61 +480,70 @@ function rng32(seed) {
 function makeEndless(seed) {
   const first = makeItem({ t: 'chene', x: 0.6, h: 5, w: 1 });  // Igor part à l'abri d'un grand chêne
   return { endless: true, nom: 'Infini', L: Infinity, a0: 0.75 * PI, items: [first], casters: [first.pts], rand: rng32(seed),
-    lastRight: first.right, reachR: shadowOf(first.pts, 1, light(A_MIN).k)[1], side: 1,
-    prevTall: true, puddles: [], bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
+    lastRight: first.right, reach: [0, 1].map((i) => shadowOf(first.pts, 1, light(SUN_POS[i]).k)[1]),
+    prevWidth: first.right - first.left, lastPos: 4, holes: [], puddles: [], bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
 }
 
-// Le chemin alterne un grand objet et un petit. Un trou entre les deux ne se couvre que par l'ombre
-// du grand : soleil à gauche quand on quitte un grand objet, soleil à droite quand on s'en approche.
-// Le mauvais côté laisse Igor au moins INF.WRONG secondes au soleil, donc un soleil laissé au même
-// endroit brûle Igor un trou sur deux. De temps en temps, deux grands se suivent pour souffler.
+// Chaque trou tire au hasard ce qu'il exige ; on choisit ensuite l'objet suivant et l'écart qui rendent
+// ce choix possible, et seulement lui. Types de trou :
+//   L0 / R4 : ombre longue de l'objet d'avant (soleil tout à gauche) / de l'objet suivant (tout à droite) ;
+//   L1 / R3 : flaque dans le trou : soleil haut à gauche / haut à droite (en bas, l'eau brûle) ;
+//   relais  : trop long pour une ombre : soleil à gauche puis à droite au milieu du trou ;
+//   pause   : couvert des deux côtés.
+// Le mauvais côté laisse toujours Igor au moins INF.WRONG secondes au soleil.
+const HOLE_POS = { L0: [0, 0], L1: [1, 1], R3: [3, 3], R4: [4, 4], relais: [0, 4] };
 function infAddOne(lv) {
   const r = lv.rand, Dx = lv.lastRight / INF.LEN, D = Math.min(1, Dx), v = infWalk(lv.lastRight);
-  const tol = (INF.TOL0 + INF.TOL1 * Dx) * v, wrong = INF.WRONG * v;
-  const kL = light(A_MIN).k, kR = light(A_MAX).k;
-  const swapNeed = v * (A_MAX - A_MIN) / infSun(lv.lastRight) * INF.SWAP;  // largeur pour changer le soleil de côté dessous
+  const tol = (INF.TOL0 + INF.TOL1 * Dx) * v, wrong = INF.WRONG * v, kk = SUN_POS.map((p) => light(p).k);
+  const travel = (n) => v * n * SUN_STEP_T * INF.SWAP;          // largeur d'objet pour bouger le soleil de n cases dessous
   const bio = biomeAt(lv.lastRight).b;
-  // Après un grand objet : parfois un deuxième grand, soit pour souffler (trou couvert des deux côtés),
-  // soit en « relais » (trou trop long pour une seule ombre : il faut basculer le soleil au milieu).
-  const twoTall = lv.prevTall && r() < INF.REST + 0.15 * D;
-  const relay = twoTall && Dx > 0.04 && r() < 0.65;
-  const rest = twoTall && !relay;
-  const tall = twoTall || !lv.prevTall;
-  const extR = lv.reachR - lv.lastRight;
-  let best = null;
-  for (let i = 0; i < 30; i++) {
-    const list = tall ? bio.big : bio.small;
-    const o = GEN[list[Math.floor(r() * list.length)]](r);
-    o.x = 0;
-    const it = makeItem(o), w = it.right - it.left, extL = it.left - shadowOf(it.pts, -1, kR)[0];
-    let gmin, gmax;
-    if (rest) { gmin = 0.3; gmax = Math.min(extR, extL) + tol; }   // couvert des deux côtés
-    else if (relay) { gmin = Math.max(extR, extL) + wrong; gmax = extR + extL - 0.4 + tol; }  // une moitié chacun
-    else if (tall) { gmin = extR + wrong; gmax = extL + tol; }     // seul le soleil à droite couvre
-    else { gmin = extL + wrong; gmax = extR + tol; }               // seul le soleil à gauche couvre
-    gmin = Math.max(gmin, 0.3);
-    const score = 3 * Math.min(0, gmax - gmin) + Math.min(0, w - swapNeed);
-    if (!best || score > best.score) best = { o, left: it.left, gmin, gmax, score };
-    if (score >= 0) break;
+  const ext0 = lv.reach[0] - lv.lastRight, ext1 = lv.reach[1] - lv.lastRight;  // portée des ombres déjà posées (soleil à gauche)
+  // ordre des types essayés : tirage pondéré, les flaques et relais deviennent plus fréquents en avançant
+  const w = { L0: 1, R4: 1, L1: Dx > 0.06 ? 0.8 + 0.6 * D : 0, R3: Dx > 0.06 ? 0.8 + 0.6 * D : 0, relais: Dx > 0.04 ? 0.35 + 0.2 * D : 0, pause: 0.2 - 0.15 * D };
+  const order = [];
+  while (Object.values(w).some((x) => x > 0)) {
+    let t = r() * Object.values(w).reduce((u, x) => u + x, 0);
+    for (const k in w) { t -= w[k]; if (t <= 0 && w[k] > 0) { order.push(k); w[k] = 0; break; } }
   }
-  // Si rien ne convient (fin de partie, très rapide), le trou reste au minimum du mauvais côté :
+  let pick = null, fallback = null;
+  for (const kind of order) {
+    const need = kind === 'pause' ? 0 : Math.abs(lv.lastPos - HOLE_POS[kind][0]);
+    if (lv.prevWidth < travel(need)) continue;
+    for (let i = 0; i < 14 && !pick; i++) {
+      const list = r() < 0.5 ? bio.big : bio.small;
+      const o = GEN[list[Math.floor(r() * list.length)]](r);
+      o.x = 0;
+      const it = makeItem(o), wd = it.right - it.left;
+      const e3 = it.left - shadowOf(it.pts, -1, kk[3])[0], e4 = it.left - shadowOf(it.pts, -1, kk[4])[0];
+      let gmin, gmax;
+      if (kind === 'L0') { gmin = e4 + wrong; gmax = ext0 + tol; }
+      else if (kind === 'L1') { gmin = e3 + wrong / 2; gmax = ext1 + tol; }  // en bas, l'eau brûle déjà : marge réduite
+      else if (kind === 'R4') { gmin = ext0 + wrong; gmax = e4 + tol; }
+      else if (kind === 'R3') { gmin = ext1 + wrong / 2; gmax = e3 + tol; }
+      else if (kind === 'relais') { gmin = Math.max(ext0, e4) + wrong; gmax = ext0 + e4 - travel(4) + tol; }
+      else { gmin = 0.3; gmax = Math.min(ext0, e4) + tol; }
+      gmin = Math.max(gmin, 0.4);
+      const endPos = kind === 'pause' ? lv.lastPos : HOLE_POS[kind][1];
+      const nextOk = wd >= travel(2);  // l'objet posé doit laisser bouger le soleil d'au moins 2 cases ensuite
+      const cand = { o, left: it.left, kind, endPos, gap: gmin + (Math.max(gmin, gmax) - gmin) * r() * 0.8, slack: gmax - gmin };
+      if (gmax >= gmin && nextOk) pick = cand;
+      else if (!fallback || cand.slack > fallback.slack) fallback = { ...cand, gap: gmin };
+    }
+    if (pick) break;
+  }
+  // Rien ne convient (fin de partie, très rapide) : le trou reste au minimum du mauvais côté ;
   // Igor prend alors un peu de soleil même en jouant parfaitement.
-  const gap = best.gmax >= best.gmin ? best.gmin + (best.gmax - best.gmin) * r() * 0.8 : best.gmin;
-  best.o.x = lv.lastRight + gap - best.left;
-  const it = makeItem(best.o);
+  if (!pick) pick = fallback;
+  const x0 = lv.lastRight;
+  pick.o.x = x0 + pick.gap - pick.left;
+  const it = makeItem(pick.o);
   lv.items.push(it); lv.casters.push(it.pts);
-  // Flaque sous un grand objet : au-dessus, il faut un soleil plus haut (positions du milieu).
-  // Elle commence sous l'objet et déborde dans le trou suivant, aussi loin que porte l'ombre avec le
-  // soleil haut à gauche : il faut donc quitter le bas, puis y revenir au bon moment en sortant de l'eau.
-  if (tall && Dx > 0.06 && r() < INF.PUDDLE0 + INF.PUDDLE1 * D) {
-    const w = it.right - it.left, reach1 = shadowOf(it.pts, 1, light(SUN_POS[1]).k)[1] - it.right;
-    const x1 = it.right + Math.max(0, reach1 - 0.4) * (0.6 + 0.4 * r());
-    const x0 = Math.min(it.left + w * (0.15 + 0.3 * r()), x1 - 1.1 * v);
-    if (x0 > it.left - 0.2) lv.puddles.push({ x0, x1 });
-  }
+  if (pick.kind === 'L1' || pick.kind === 'R3') lv.puddles.push({ x0: x0 + 0.1, x1: it.left - 0.1 });
+  lv.holes.push(pick.kind);
   lv.lastRight = it.right;
-  lv.prevTall = tall;
-  lv.reachR = Math.max(lv.reachR, shadowOf(it.pts, 1, kL)[1]);
+  lv.prevWidth = it.right - it.left;
+  lv.lastPos = pick.endPos;
+  lv.reach = [0, 1].map((i) => Math.max(lv.reach[i], shadowOf(it.pts, 1, kk[i])[1]));
 }
 
 function infExtend(lv, upTo) {
@@ -580,6 +613,8 @@ const sfx = {
   win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.3)); },
   lose() { tone(220, 0, 0.5, 'sine', 0.2, 0.5); tone(140, 0.2, 0.6, 'sine', 0.18, 0.6); },
   ouf() { tone(520, 0, 0.35, 'sine', 0.06, 0.7); },
+  tic(n) { const k = Math.min(n, 24) % 12, oct = n >= 12 ? 2 : 1; tone(523 * oct * Math.pow(2, [0, 2, 4, 5, 7, 9, 11][k % 7] / 12), 0, 0.12, 'sine', 0.05); },
+  perdue() { tone(330, 0, 0.25, 'triangle', 0.08, 0.6); },
   pas() { tone(520 + 60 * ti, 0, 0.07, 'triangle', 0.035); },
   serie() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, i * 0.07, 0.18, 'sine', 0.07)); },
   bulle() { tone(660, 0, 0.18, 'sine', 0.12, 1.5); tone(990, 0.08, 0.25, 'sine', 0.08, 1.3); },
@@ -593,7 +628,7 @@ let mode = 'titre';        // titre | niveaux | pret | jeu | arrivee | cendres |
 let cur = 0, lv = buildLevel(LEVELS[0]);
 let ti = 2;  // position visée du soleil (0 à 4)
 let serie = 0, serieMax = 0, burnedSince = 0, recordPasse = false;
-const SERIE_TOL = 8;  // points de vie qu'on peut perdre entre deux obstacles sans casser la série
+const SERIE_TOL = 15;  // points de vie qu'on peut perdre entre deux obstacles sans casser la série (≈ 0,3 s de soleil)
 let a = PI / 2, target = PI / 2, vx = 0, health = 100, minH = 100, clock = 0, phaseT = 0, burnT = 0;
 let particles = [];
 
@@ -605,12 +640,29 @@ function showBanner(nom, etiquette = 'Biome') {
 }
 try { const b = JSON.parse(localStorage.getItem('midi.infini')); if (b && b.m > 0) best = b; } catch (e) {}
 const fmtTemps = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+// Paliers de série : chacun rend de la vie et fait monter d'un cran l'affichage.
+const PALIERS = [5, 10, 15, 25, 35, 50, 75, 100, 150, 200, 300];
+const PALIER_VIE = 15;
+function palierSuivant(n) { return PALIERS.find((p) => p > n) || Math.ceil((n + 1) / 100) * 100; }
 function majSerie(pop) {
   const el = $('serie');
   el.hidden = !(lv && lv.endless) || mode === 'titre' || mode === 'niveaux';
   $('serie-n').textContent = serie;
-  el.classList.toggle('zero', serie === 0);
-  if (pop) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+  const nxt = palierSuivant(serie), prev = [...PALIERS].reverse().find((p) => p <= serie) || 0;
+  $('serie-jauge').style.width = `${Math.round(((serie - prev) / (nxt - prev)) * 100)}%`;
+  $('serie-info').textContent = `palier ${nxt} · record ${Math.max(best.serie || 0, serieMax)}`;
+  el.className = serie === 0 ? 'zero' : serie >= 30 ? 't4' : serie >= 15 ? 't3' : serie >= 5 ? 't2' : 't1';
+  if (pop) { void el.offsetWidth; el.classList.add('pop'); }
+}
+function seriePerdue(n) {
+  const el = $('serie-perdue');
+  el.textContent = `Série perdue : ${n}`;
+  el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(seriePerdue.t); seriePerdue.t = setTimeout(() => { el.hidden = true; }, 1500);
+}
+function flash() {
+  const el = $('flash'); el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(flash.t); flash.t = setTimeout(() => { el.hidden = true; }, 750);
 }
 function recordLabel() {
   $('record-titre').textContent = best.m > 0
@@ -688,7 +740,7 @@ function finish(win) {
     $('i-detail').textContent += ` · meilleure série : ${serieMax}`;
     $('i-record').textContent = record ? 'Nouveau record !' : `Record : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}`;
     if (serieRecord) $('i-record').textContent += ' Nouvelle meilleure série !';
-    $('serie').hidden = true;
+    $('serie').hidden = true; $('serie-perdue').hidden = true;
     recordLabel();
     mode = 'defaite'; screens('ecran-infini');
     return;
@@ -757,13 +809,20 @@ function update(dt) {
       // La série casse dès qu'Igor a perdu plus de SERIE_TOL points de vie depuis le dernier obstacle
       // (une fraction de seconde au soleil en changeant de position ne compte pas).
       burnedSince += BURN * e * dt;
-      if (burnedSince > SERIE_TOL && serie > 0) { serie = 0; majSerie(); }
+      if (burnedSince > SERIE_TOL && serie > 0) {
+        if (serie >= 3) { seriePerdue(serie); sfx.perdue(); }
+        serie = 0; majSerie();
+      }
       for (const it of lv.items) {
         if (!it.passe && vx - HALF_W > it.right) {
           it.passe = true;
           if (burnedSince <= SERIE_TOL) {
-            serie++; serieMax = Math.max(serieMax, serie); majSerie(true);
-            if ([10, 25, 50, 100, 200].includes(serie)) { showBanner(`${serie} d’affilée`, 'Série parfaite'); sfx.serie(); }
+            serie++; serieMax = Math.max(serieMax, serie); majSerie(true); sfx.tic(serie);
+            if (PALIERS.includes(serie) || (serie > 300 && serie % 100 === 0)) {
+              health = Math.min(100, health + PALIER_VIE); popT = 1;
+              showBanner(`${serie} d’affilée · +${PALIER_VIE} vie`, 'Série parfaite'); sfx.serie(); flash(); buzz([20, 30, 20]);
+              for (let i = 0; i < 24; i++) particles.push({ x: vx, y: 1.2, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2.5, life: 1, r: 0.04 + Math.random() * 0.05, or: true });
+            }
           }
           burnedSince = 0;
         }
@@ -1372,7 +1431,7 @@ function paintIgor(g, s, t, burn, walking) {
 
 function drawParticles(cx) {
   for (const p of particles) {
-    ctx.fillStyle = p.rouge ? `rgba(255,90,120,${0.8 * p.life})` : `rgba(215,210,220,${0.45 * p.life})`;
+    ctx.fillStyle = p.or ? `rgba(255,214,110,${0.9 * p.life})` : p.rouge ? `rgba(255,90,120,${0.8 * p.life})` : `rgba(215,210,220,${0.45 * p.life})`;
     ctx.beginPath(); ctx.arc(X(p.x, cx), FEET() - p.y * S, p.r * S, 0, 2 * PI); ctx.fill();
   }
 }
