@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b1822">
+<!--WRAP-END-->
+<title>Marée · La Loire</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Prototype en 3D de Marée : on descend la vraie Loire d'Orléans à Blois, vue de derrière le bateau. */
+:root {
+  --abysse: #0b1822; --ecume: #f3efe6; --brume: #93a6b3; --or: #d9b56f; --ligne: rgba(243,239,230,.16); --verre: rgba(11,24,34,.55);
+  --f-titre: "Outfit", "Helvetica Neue", system-ui, sans-serif; --f-texte: "Inter", "Helvetica Neue", system-ui, sans-serif;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--abysse); }
+body { color: var(--ecume); font: 400 15px/1.4 var(--f-texte); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; -webkit-font-smoothing: antialiased; }
+#app { position: relative; height: 100%; overflow: hidden; touch-action: none; }
+#app > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#hud { position: absolute; inset: 0; pointer-events: none; }
+#tete { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; padding: 12px max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px)); text-shadow: 0 1px 6px rgba(0,0,0,.45); }
+#tete .centre { text-align: center; display: grid; gap: 2px; }
+#nom { font: 500 13px/1.1 var(--f-titre); letter-spacing: .26em; text-transform: uppercase; }
+#troncon { font-size: 11px; opacity: .75; letter-spacing: .06em; }
+#coeurs { font-size: 13px; letter-spacing: 4px; }
+#coeurs i { font-style: normal; opacity: .25; }
+.droite { justify-self: end; display: grid; justify-items: end; gap: 6px; }
+.jeton { background: var(--verre); border: 1px solid var(--ligne); border-radius: 999px; padding: 3px 10px 3px 7px; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.piece { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; background: radial-gradient(circle at 35% 30%, #f6e7c4, #d9b56f 55%, #a7834a); }
+#minicarte { width: 96px; height: 70px; border-radius: 8px; background: var(--verre); border: 1px solid var(--ligne); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+#route { position: absolute; left: 24px; right: 24px; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); height: 34px; }
+#route .fil { position: absolute; left: 0; right: 0; top: 8px; height: 1px; background: rgba(243,239,230,.3); }
+#route .fait { position: absolute; left: 0; top: 8px; height: 1px; background: var(--or); width: 0; }
+#route .bateau { position: absolute; top: 4px; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; background: var(--ecume); box-shadow: 0 0 10px rgba(255,255,255,.7); }
+#route .ville { position: absolute; top: 5px; transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; font: 500 8.5px/1 var(--f-titre); letter-spacing: .14em; text-transform: uppercase; color: rgba(243,239,230,.65); white-space: nowrap; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+#route .ville::before { content: ""; width: 1px; height: 7px; background: rgba(243,239,230,.6); }
+#route .ville.passee { color: var(--or); }
+#route .ville.haut { top: auto; bottom: 26px; }
+#route .ville.haut::before { order: 2; }
+#jauge { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); display: grid; gap: 14px; }
+#jauge i { display: block; width: 8px; height: 1.5px; background: rgba(255,255,255,.35); transition: width .2s, background .2s; }
+#jauge i.on { width: 16px; background: #fff; }
+#serie { position: absolute; left: 50%; top: 62px; transform: translateX(-50%); text-align: center; transition: opacity .3s; }
+#serie small { display: block; font: 500 9px/1 var(--f-titre); letter-spacing: .4em; text-transform: uppercase; opacity: .8; }
+#serie b { font: 200 40px/1 var(--f-titre); text-shadow: 0 2px 12px rgba(0,0,0,.35); }
+#serie.zero { opacity: 0; }
+#banniere { position: absolute; left: 0; right: 0; top: 26%; text-align: center; animation: ban 3s ease-in-out forwards; text-shadow: 0 1px 14px rgba(5,20,35,.6); }
+#banniere small { display: block; font: 500 10px/1 var(--f-titre); letter-spacing: .45em; text-transform: uppercase; opacity: .85; margin-bottom: 10px; }
+#banniere b { display: block; font: 200 clamp(30px, 9vw, 46px)/1.05 var(--f-titre); letter-spacing: .06em; }
+#banniere b::after { content: ""; display: block; width: 40px; height: 1px; margin: 14px auto 0; background: var(--or); }
+@keyframes ban { 0% { opacity: 0; transform: translateY(10px); } 12%, 78% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-8px); } }
+#aide { position: absolute; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); text-align: center; font-size: 14px; text-shadow: 0 1px 8px rgba(0,0,0,.6); transition: opacity .6s; padding: 0 20px; }
+#flash { position: absolute; inset: 0; background: radial-gradient(circle, rgba(191,95,92,0) 40%, rgba(191,95,92,.45)); opacity: 0; transition: opacity .5s; pointer-events: none; }
+.ecran { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 14px; text-align: center; padding: 40px max(18px, env(safe-area-inset-right, 0px)) calc(48px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to bottom, rgba(7,16,24,0) 30%, rgba(7,16,24,.82) 80%); }
+.ecran small { font: 500 10px/1 var(--f-titre); letter-spacing: .4em; text-transform: uppercase; color: var(--or); }
+h1, h2 { margin: 0; font-family: var(--f-titre); font-weight: 200; letter-spacing: .2em; text-transform: uppercase; }
+h1 { font-size: clamp(40px, 13vw, 72px); margin-right: -.2em; }
+h2 { font-size: 28px; font-weight: 300; letter-spacing: .14em; }
+.sous { margin: 0; max-width: 34ch; color: var(--brume); font-size: 14px; }
+.gestes { display: flex; gap: 22px; justify-content: center; margin: 6px 0 4px; }
+.geste { display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--brume); }
+.geste span { font: 300 22px/1 var(--f-titre); color: var(--ecume); letter-spacing: .1em; }
+.btn { border: 1px solid transparent; border-radius: 8px; cursor: pointer; font: 500 13px/1 var(--f-titre); letter-spacing: .2em; text-transform: uppercase; padding: 17px 28px; min-width: 240px; background: var(--ecume); color: var(--abysse); }
+.btn.second { background: transparent; border-color: rgba(243,239,230,.35); color: var(--ecume); font-size: 11px; padding: 13px 20px; }
+.btn:active { transform: scale(.97); }
+.btn:focus-visible { outline: 2px solid var(--or); outline-offset: 3px; }
+.etoiles { font-size: 30px; letter-spacing: 10px; margin-right: -10px; color: var(--or); }
+.etoiles i { font-style: normal; color: rgba(243,239,230,.18); }
+.stats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--brume); }
+.stats b { color: var(--ecume); font-weight: 600; }
+#erreur { position: absolute; inset: 0; display: grid; place-items: center; padding: 30px; text-align: center; color: var(--brume); }
+@media (prefers-reduced-motion: reduce) { #banniere { animation: none; } }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!--WRAP-HEAD-END-->
+</head>
+<body>
+<!--WRAP-BODY-START-->
+<div id="app">
+  <div id="hud" hidden>
+    <div id="tete">
+      <div><span id="coeurs">♥♥♥</span></div>
+      <div class="centre"><span id="nom">La Loire</span><span id="troncon">Orléans → Blois</span></div>
+      <div class="droite"><span class="jeton"><i class="piece"></i> <b id="pieces">0</b></span><canvas id="minicarte" width="192" height="140" aria-label="Position sur la Loire"></canvas></div>
+    </div>
+    <div id="serie" class="zero"><small>Série</small><b id="serie-n">0</b></div>
+    <div id="jauge" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div id="route"><div class="fil"></div><div class="fait" id="fait"></div><div class="bateau" id="point"></div></div>
+    <div id="aide"></div>
+    <div id="flash"></div>
+  </div>
+  <div id="banniere" hidden><small id="ban-l"></small><b id="ban-n"></b></div>
+
+  <section class="ecran" id="ecran-depart">
+    <small>Prototype · Marée en 3D</small>
+    <h1>La Loire</h1>
+    <p class="sous">D’Orléans à Blois, sur le vrai tracé du fleuve. Ponts de pierre, bancs de sable et silures.</p>
+    <div class="gestes">
+      <div class="geste"><span>← →</span>changer de couloir</div>
+      <div class="geste"><span>↑ ↓</span>monter ou baisser l’eau</div>
+    </div>
+    <button class="btn" id="b-partir">Larguer les amarres</button>
+  </section>
+
+  <section class="ecran" id="ecran-fin" hidden>
+    <small id="f-sur">Arrivée</small>
+    <h2 id="f-titre">Blois</h2>
+    <div class="etoiles" id="f-etoiles"></div>
+    <ul class="stats" id="f-stats"></ul>
+    <button class="btn" id="b-rejouer">Rejouer</button>
+  </section>
+  <div id="erreur" hidden>La 3D n’a pas pu se charger sur cet appareil.</div>
+</div>
+
+<script>
+// =====================================================================  données réelles
+// Tracé de la Loire (Natural Earth 1:10 M, domaine public), tronçon Orléans → Blois.
+const TRONCON = [[1.909, 47.903], [1.867605, 47.90001], [1.852957, 47.888861], [1.835134, 47.880561], [1.730154, 47.853135], [1.720225, 47.845079], [1.714366, 47.836208], [1.672537, 47.793565], [1.663259, 47.789415], [1.655203, 47.788642], [1.646983, 47.786933], [1.637706, 47.779893], [1.617198, 47.742703], [1.611827, 47.738593], [1.588552, 47.73253], [1.583181, 47.72838], [1.582449, 47.714301], [1.5796, 47.707709], [1.524669, 47.674628], [1.504161, 47.666815], [1.459158, 47.660264], [1.438975, 47.651435], [1.335, 47.588]];
+const LOIRE_ENTIERE = [[[3.011,47.174],[2.988,47.222],[2.98,47.256],[2.961,47.28],[2.904,47.312],[2.881,47.333],[2.886,47.359],[2.933,47.434],[2.922,47.467],[2.844,47.543],[2.797,47.588],[2.755,47.609],[2.74,47.626],[2.742,47.635],[2.733,47.638],[2.717,47.646],[2.707,47.657],[2.426,47.773],[2.35,47.773],[2.339,47.784],[2.32,47.794],[2.295,47.797],[2.289,47.807],[2.249,47.837],[2.233,47.86],[2.1,47.876],[2.067,47.872],[2.051,47.862],[2.036,47.868],[2.025,47.89],[1.976,47.901],[1.868,47.9],[1.835,47.881],[1.72,47.845],[1.673,47.794],[1.655,47.789],[1.638,47.78],[1.612,47.739],[1.583,47.728],[1.58,47.708],[1.504,47.667],[1.439,47.651],[1.282,47.546],[1.242,47.498],[1.201,47.489],[0.823,47.403],[0.708,47.409],[0.507,47.369],[0.479,47.352],[0.443,47.326],[0.394,47.317],[0.211,47.243],[0.096,47.23],[0.01,47.248],[-0.033,47.253],[-0.072,47.265],[-0.144,47.315],[-0.181,47.324],[-0.267,47.383],[-0.291,47.4],[-0.314,47.413],[-0.399,47.424],[-0.513,47.424],[-0.61,47.413],[-0.636,47.391],[-0.687,47.372],[-0.731,47.371],[-0.882,47.4],[-1.129,47.382],[-1.223,47.351],[-1.286,47.346],[-1.461,47.253],[-1.501,47.218],[-1.532,47.219],[-1.548,47.216],[-1.588,47.2],[-1.651,47.197],[-1.735,47.211]],[[3.078,46.985],[3.071,47.016],[3.071,47.054],[3.049,47.067],[3.029,47.088],[3.03,47.117],[3.022,47.149],[3.011,47.174]],[[4.191,44.827],[4.173,44.783],[4.108,44.793],[4.013,44.852],[3.924,44.895],[3.909,44.945],[3.908,44.976],[3.89,44.996],[3.919,45.013],[3.929,45.047],[3.907,45.09],[3.903,45.125],[3.926,45.154],[3.929,45.191],[3.963,45.212],[4.021,45.213],[4.091,45.239],[4.131,45.286],[4.138,45.322],[4.178,45.347],[4.222,45.399],[4.247,45.452],[4.252,45.506],[4.248,45.546],[4.238,45.599],[4.237,45.624],[4.222,45.652],[4.198,45.681],[4.202,45.728],[4.191,45.785],[4.164,45.829],[4.113,45.879],[4.094,45.906],[4.027,45.962],[4.034,45.997],[4.103,46.066],[4.099,46.091],[4.093,46.174],[4.035,46.242],[4.018,46.287],[4.02,46.309],[4.001,46.329],[4.001,46.335],[3.998,46.339],[3.991,46.346],[3.987,46.353],[3.986,46.361],[3.988,46.371],[3.984,46.378],[3.98,46.383],[3.979,46.395],[3.99,46.427],[3.987,46.436],[3.982,46.443],[3.98,46.455],[3.977,46.467],[3.972,46.471],[3.947,46.481],[3.907,46.487],[3.874,46.495],[3.867,46.501],[3.85,46.509],[3.835,46.522],[3.825,46.523],[3.805,46.523],[3.799,46.528],[3.791,46.531],[3.776,46.535],[3.765,46.542],[3.741,46.549],[3.739,46.557],[3.745,46.568],[3.743,46.61],[3.736,46.619],[3.708,46.64],[3.699,46.657],[3.689,46.662],[3.674,46.674],[3.658,46.686],[3.653,46.701],[3.625,46.739],[3.611,46.761],[3.537,46.8],[3.432,46.843],[3.347,46.849],[3.309,46.873],[3.251,46.941],[3.203,46.978],[3.153,46.987],[3.101,46.969],[3.078,46.985]]];
+const VILLES = [['Orléans', 1.909, 47.902], ['Meung-sur-Loire', 1.698, 47.828], ['Beaugency', 1.633, 47.777], ['Saint-Laurent', 1.585, 47.72], ['Blois', 1.335, 47.586]];
+
+// =====================================================================  règles
+const PI = Math.PI, clamp = (v, a, b) => Math.max(a, Math.min(b, v)), lerp = (a, b, t) => a + (b - a) * t;
+const $ = (id) => document.getElementById(id);
+const LONGUEUR = 1250;                      // longueur du niveau (unités de jeu) ; environ 75 s
+const COULOIRS = [-3.4, 0, 3.4];            // décalage latéral des 3 couloirs
+const EAU = [-0.3, 0.8, 1.9];               // hauteur de la surface pour les 3 niveaux d'eau
+const HAUT_BATEAU = 1.45, QUILLE = 0.35;    // le bateau dépasse de 1,45 au-dessus de l'eau et s'enfonce de 0,35
+const VOUTES = [EAU[0] + HAUT_BATEAU + 0.35, EAU[1] + HAUT_BATEAU + 0.35, 4.4];   // arche basse, moyenne, haute
+const BANC_HAUT = 1.4;                      // un banc de sable n'est franchissable qu'à l'eau haute
+const ACCENT = 2.6;                         // les méandres réels sont accentués pour se sentir à l'écran
+function rng32(seed) { return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const hash = (n) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+
+// ---- tracé : longitude/latitude → km, méandres accentués, lissé et rééchantillonné
+const LAT0 = 47.75, KX = Math.cos(LAT0 * PI / 180) * 111.32, KZ = 110.57;
+const km = ([lon, lat]) => [(lon - TRONCON[0][0]) * KX, -(lat - TRONCON[0][1]) * KZ];
+const brut = TRONCON.map(km);
+const fin = brut[brut.length - 1], corde = Math.hypot(fin[0], fin[1]), dir = [fin[0] / corde, fin[1] / corde], perp = [-dir[1], dir[0]];
+const versJeu = (p) => { const a = p[0] * dir[0] + p[1] * dir[1], b = p[0] * perp[0] + p[1] * perp[1]; return [a, b * ACCENT]; };
+let LONG_KM = 0; for (let i = 1; i < brut.length; i++) LONG_KM += Math.hypot(brut[i][0] - brut[i - 1][0], brut[i][1] - brut[i - 1][1]);
+const PAS = 2, N = Math.round(LONGUEUR / PAS) + 60;
+let PTS, TAN, DROITE;   // échantillons du fleuve tous les PAS unités
+function construireTrace() {
+  const pj = brut.map(versJeu), ech = LONGUEUR / pj[pj.length - 1][0];
+  const v = pj.map(([a, b]) => new THREE.Vector3(b * ech, 0, -a * ech));
+  // prolonge un peu avant le départ et après l'arrivée
+  const d0 = v[1].clone().sub(v[0]).normalize(), d1 = v[v.length - 1].clone().sub(v[v.length - 2]).normalize();
+  v.unshift(v[0].clone().addScaledVector(d0, -60)); v.push(v[v.length - 1].clone().addScaledVector(d1, 120));
+  const courbe = new THREE.CatmullRomCurve3(v, false, 'centripetal');
+  const tot = courbe.getLength(), pts = courbe.getSpacedPoints(Math.round(tot / PAS));
+  // origine : l'échantillon le plus proche d'Orléans
+  let i0 = 0, best = 1e9; pts.forEach((p, i) => { const d = p.distanceTo(v[1]); if (d < best) { best = d; i0 = i; } });
+  PTS = pts.slice(Math.max(0, i0 - 30));   // 60 unités de recul avant le départ
+  TAN = PTS.map((p, i) => PTS[Math.min(i + 1, PTS.length - 1)].clone().sub(PTS[Math.max(i - 1, 0)]).setY(0).normalize());
+  DROITE = TAN.map((t) => new THREE.Vector3(-t.z, 0, t.x));
+}
+const S0 = 60;   // abscisse du départ (Orléans) le long des échantillons
+function cadre(s) {   // position, tangente et droite du fleuve à l'abscisse s (interpolées)
+  const f = clamp((s + S0) / PAS, 0, PTS.length - 1.001), i = Math.floor(f), t = f - i;
+  return { p: PTS[i].clone().lerp(PTS[i + 1], t), t: TAN[i].clone().lerp(TAN[i + 1], t).normalize(), d: DROITE[i].clone().lerp(DROITE[i + 1], t).normalize() };
+}
+function sDeLonLat(lon, lat) {
+  const pj = versJeu(km([lon, lat])), pjf = versJeu(km(TRONCON[TRONCON.length - 1]));
+  return clamp(pj[0] / pjf[0], 0, 1) * LONGUEUR;
+}
+
+// ---- génération du niveau : chaque obstacle laisse au moins un passage (couloir × niveau d'eau)
+const MOTIFS_PONT = [[0, 2, 0], [2, 0, 2], [1, 0, 2], [2, 0, 1], [0, 1, 2], [2, 1, 0], [1, 2, 1], [0, 2, 1], [1, 1, 2], [2, 1, 1]];
+function genNiveau(seed) {
+  const r = rng32(seed), evs = [], pieces = [];
+  const villes = VILLES.map(([n, lon, lat]) => ({ nom: n, s: sDeLonLat(lon, lat) }));
+  // ponts des villes, aux vrais emplacements
+  for (const v of villes.slice(1, 4)) evs.push({ type: 'pont', s: v.s, voutes: MOTIFS_PONT[Math.floor(r() * MOTIFS_PONT.length)], nom: v.nom });
+  evs.push({ type: 'pont', s: LONGUEUR - 4, voutes: [2, 2, 2], nom: 'Blois', arrivee: true });
+  let s = 70;
+  while (s < LONGUEUR - 40) {
+    const prog = s / LONGUEUR, gap = lerp(36, 21, prog) + r() * 10;
+    s += gap; if (s > LONGUEUR - 30) break;
+    if (evs.some((e) => Math.abs(e.s - s) < 18)) continue;
+    const u = r(); let e;
+    if (u < 0.36) e = { type: 'pont', s, voutes: MOTIFS_PONT[Math.floor(r() * MOTIFS_PONT.length)] };
+    else if (u < 0.7) { const k = r() < 0.25 && prog > 0.3 ? 3 : r() < 0.55 ? 1 : 2, l = [0, 1, 2].sort(() => r() - 0.5).slice(0, k); e = { type: 'banc', s, couloirs: l }; }
+    else { const c0 = Math.floor(r() * 3), c1 = c0 === 1 ? (r() < 0.5 ? 0 : 2) : 1; e = { type: 'silure', s, c0, c1, c: c0, x: COULOIRS[c0], phase: 0 }; }
+    evs.push(e);
+  }
+  evs.sort((a, b) => a.s - b.s);
+  // traînées de pièces qui montrent un bon passage, sans flèche
+  for (let i = 0; i < evs.length; i++) {
+    const e = evs[i], ok = passages(e); if (!ok.length) continue;
+    const [c, n] = ok[Math.floor(r() * ok.length)], prev = i ? evs[i - 1].s + 6 : 20, deb = Math.max(prev, e.s - 16);
+    for (let x = deb; x < e.s - 3; x += 3.2) pieces.push({ s: x, c, n, pris: false });
+  }
+  return { evs, pieces, villes };
+}
+function passages(e) {   // états (couloir, niveau d'eau) qui franchissent l'obstacle
+  const ok = [];
+  for (let c = 0; c < 3; c++) for (let n = 0; n < 3; n++) {
+    if (e.type === 'pont' && EAU[n] + HAUT_BATEAU <= VOUTES[e.voutes[c]] - 0.05) ok.push([c, n]);
+    if (e.type === 'banc' && (!e.couloirs.includes(c) || EAU[n] - QUILLE > BANC_HAUT)) ok.push([c, n]);
+    if (e.type === 'silure' && c !== e.c1) ok.push([c, n]);
+  }
+  return ok;
+}
+
+// =====================================================================  scène 3D
+let renderer, scene, camera, eauMesh, eauGeo, eauBase, sillage, bateau, drapeau, mPieces, decor = [];
+const COL = { herbe: 0x7b8d5a, herbe2: 0x6c7f4e, levee: 0x8d9867, sable: 0xcdb98f, sableMouille: 0xa48f6a, lit: 0x6b6150, tuffeau: 0xe6dcc6, ardoise: 0x5a6570, pierre: 0xd2c6ad, eau: 0x5b8a98 };
+const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({ color: c, flatShading: true }, o));
+function placer(obj, s, lat, y, rot = 0) {   // pose un objet dans le repère du fleuve
+  const f = cadre(s), m = new THREE.Matrix4().makeBasis(f.d, new THREE.Vector3(0, 1, 0), f.t.clone().negate());
+  obj.quaternion.setFromRotationMatrix(m); if (rot) obj.rotateY(rot);
+  obj.position.copy(f.p).addScaledVector(f.d, lat).setY(y);
+  return obj;
+}
+function ruban(colonnes, couleurs, bruit) {   // bande qui suit le fleuve : une colonne = (décalage latéral, hauteur)
+  const n = PTS.length, m = colonnes.length, pos = new Float32Array(n * m * 3), col = new Float32Array(n * m * 3), idx = [];
+  const c = new THREE.Color();
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+    const [lat, y] = colonnes[j], k = (i * m + j) * 3, p = PTS[i], d = DROITE[i];
+    const b = bruit ? bruit(i, j) : 0;
+    pos[k] = p.x + d.x * lat; pos[k + 1] = y + b; pos[k + 2] = p.z + d.z * lat;
+    c.setHex(couleurs[j]); c.offsetHSL(0, 0, (hash(i * 7.1 + j) - 0.5) * 0.04); col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+  }
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) { const a = i * m + j, b = a + m; idx.push(a, a + 1, b, a + 1, b + 1, b); }   // faces tournées vers le ciel
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function construireScene() {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  $('app').prepend(renderer.domElement);
+  scene = new THREE.Scene();
+  const horizon = new THREE.Color(0xe7dcc4);
+  scene.fog = new THREE.Fog(horizon, 70, 240);
+  camera = new THREE.PerspectiveCamera(60, 1, 0.3, 600);
+  // ciel : dôme en dégradé
+  const ciel = new THREE.SphereGeometry(500, 24, 12), cc = [], top = new THREE.Color(0x7f9db0);
+  for (let i = 0; i < ciel.attributes.position.count; i++) { const y = ciel.attributes.position.getY(i) / 500; const c = horizon.clone().lerp(top, clamp(y * 1.6, 0, 1)); cc.push(c.r, c.g, c.b); }
+  ciel.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
+  const dome = new THREE.Mesh(ciel, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false })); scene.add(dome); decor.dome = dome;
+  const soleil = new THREE.Mesh(new THREE.CircleGeometry(14, 32), new THREE.MeshBasicMaterial({ color: 0xfff4dc, fog: false, transparent: true, opacity: 0.9 })); scene.add(soleil); decor.soleil = soleil;
+  scene.add(new THREE.HemisphereLight(0xd8e4ea, 0x7a6e55, 0.78));
+  const sun = new THREE.DirectionalLight(0xffe6c0, 0.85); sun.position.set(-60, 70, -90); scene.add(sun); scene.add(sun.target); decor.sun = sun;
+  // terrain : prairies, levées, grèves de sable et lit du fleuve
+  const colonnes = [[-90, 3.0], [-24, 3.3], [-11, 3.5], [-9.6, 3.5], [-8.4, 1.6], [-7.6, -0.4], [-6.6, -1.8], [0, -2.3], [6.6, -1.8], [7.6, -0.4], [8.4, 1.6], [9.6, 3.5], [11, 3.5], [24, 3.3], [90, 3.0]];
+  const couleurs = [COL.herbe2, COL.herbe, COL.herbe, COL.levee, COL.sable, COL.sableMouille, COL.lit, COL.lit, COL.lit, COL.sableMouille, COL.sable, COL.levee, COL.herbe, COL.herbe, COL.herbe2];
+  const sol = new THREE.Mesh(ruban(colonnes, couleurs, (i, j) => (j <= 1 || j >= 13 ? (hash(i * 0.37 + j) - 0.5) * 1.2 + Math.sin(i * 0.05 + j) * 0.8 : 0)), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  scene.add(sol);
+  // eau : une seule nappe qui monte et descend
+  const cols = []; for (let j = 0; j <= 10; j++) cols.push([-10 + j * 2, 0]);
+  eauGeo = ruban(cols, cols.map(() => COL.eau)); eauBase = eauGeo.attributes.position.array.slice();
+  eauMesh = new THREE.Mesh(eauGeo, new THREE.MeshLambertMaterial({ color: COL.eau, flatShading: true, transparent: true, opacity: 0.9 }));
+  scene.add(eauMesh);
+  construireDecor();
+}
+function construireDecor() {
+  const r = rng32(1789);
+  // arbres en instances : peupliers et feuillus ronds
+  const peuplier = new THREE.ConeGeometry(0.9, 7, 5); peuplier.translate(0, 3.5, 0);
+  const rond = new THREE.IcosahedronGeometry(2.3, 0); rond.translate(0, 3.2, 0);
+  const nb = 900, ip = new THREE.InstancedMesh(peuplier, mat(0x5d6f45), nb), ir = new THREE.InstancedMesh(rond, mat(0x6e7f4d), nb);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), c = new THREE.Color();
+  let kp = 0, kr = 0;
+  for (let s = -40; s < LONGUEUR + 120 && (kp < nb || kr < nb); s += 2.6) {
+    for (const cote of [-1, 1]) {
+      if (r() < 0.25) continue;
+      const lat = cote * (12 + Math.pow(r(), 1.6) * 60), f = cadre(s + r() * 2), h = 0.75 + r() * 0.6;
+      if (decor.zones && decor.zones.some((z) => Math.abs(z.s - s) < z.r && Math.sign(z.lat) === cote && Math.abs(lat) < Math.abs(z.lat) + 22)) continue;
+      const pos = f.p.clone().addScaledVector(f.d, lat).setY(3.1);
+      if (r() < 0.45 && kp < nb) { sc.set(h, h * (0.9 + r() * 0.5), h); m4.compose(pos, q, sc); ip.setMatrixAt(kp, m4); c.setHSL(0.24 + r() * 0.04, 0.22, 0.3 + r() * 0.06); ip.setColorAt(kp++, c); }
+      else if (kr < nb) { sc.set(h, h * 0.85, h); m4.compose(pos, q, sc); ir.setMatrixAt(kr, m4); c.setHSL(0.2 + r() * 0.06, 0.2, 0.33 + r() * 0.07); ir.setColorAt(kr++, c); }
+    }
+  }
+  ip.count = kp; ir.count = kr; scene.add(ip, ir);
+}
+// ---- bâtiments du Val de Loire : tuffeau blanc et toits d'ardoise
+function toit(l, h, p) { const g = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1); g.rotateY(PI / 4); g.scale(l, h, p); return g; }
+function maison(grp, x, z, l = 3, p = 2.4, h = 2.2) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(l, h, p), mat(COL.tuffeau)); m.position.set(x, h / 2, z); grp.add(m);
+  const t = new THREE.Mesh(toit(l * 1.05, 1.6, p * 1.08), mat(COL.ardoise)); t.position.set(x, h + 0.8, z); grp.add(t);
+}
+function chateau(nom) {
+  const g = new THREE.Group();
+  const corps = new THREE.Mesh(new THREE.BoxGeometry(16, 7, 6), mat(COL.tuffeau)); corps.position.y = 3.5; g.add(corps);
+  const t = new THREE.Mesh(toit(16.4, 4.5, 6.4), mat(COL.ardoise)); t.position.y = 9.25; g.add(t);
+  for (const x of [-8.5, 8.5]) {
+    const tour = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 9, 12), mat(COL.tuffeau)); tour.position.set(x, 4.5, 1.5); g.add(tour);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(2.3, 5, 12), mat(COL.ardoise)); cone.position.set(x, 11.5, 1.5); g.add(cone);
+  }
+  for (let i = 0; i < 4; i++) { const ch = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.2, 0.7), mat(COL.tuffeau)); ch.position.set(-5 + i * 3.3, 11, 0); g.add(ch); }
+  const fen = mat(0x3a4650);
+  for (let i = 0; i < 6; i++) for (let k = 0; k < 2; k++) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.1), fen); f.position.set(-6.2 + i * 2.5, 2.4 + k * 2.6, 3.05); g.add(f); }
+  return g;
+}
+function village(s, cote, eglise) {
+  const g = new THREE.Group(), r = rng32(Math.round(s));
+  for (let i = 0; i < 9; i++) maison(g, (r() - 0.5) * 26, -r() * 14, 2.5 + r() * 2, 2.2 + r() * 1.2, 2 + r() * 1.2);
+  if (eglise) {
+    const nef = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 8), mat(COL.tuffeau)); nef.position.set(4, 2, -6); g.add(nef);
+    const clocher = new THREE.Mesh(new THREE.BoxGeometry(2.2, 8, 2.2), mat(COL.tuffeau)); clocher.position.set(4, 4, -1.5); g.add(clocher);
+    const fleche = new THREE.Mesh(new THREE.ConeGeometry(1.6, 6, 4), mat(COL.ardoise)); fleche.rotation.y = PI / 4; fleche.position.set(4, 11, -1.5); g.add(fleche);
+  }
+  return placer(g, s, cote * 22, 3.2, cote > 0 ? PI : 0);
+}
+// ---- obstacles
+function pont(e) {
+  const g = new THREE.Group(), pierre = mat(COL.pierre), dessus = Math.max(...e.voutes.map((v) => VOUTES[v])) + 1.1;
+  e.dessus = dessus;
+  for (let c = 0; c < 3; c++) {   // une arche par couloir, plus ou moins haute
+    const cle = VOUTES[e.voutes[c]], nais = cle - 1.1, a = 1.7, ea = 1.42, sh = new THREE.Shape();
+    sh.moveTo(-a, nais); sh.lineTo(-a, dessus); sh.lineTo(a, dessus); sh.lineTo(a, nais); sh.lineTo(ea, nais);
+    for (let k = 0; k <= 16; k++) { const th = (k / 16) * PI; sh.lineTo(ea * Math.cos(th), nais + (cle - nais) * Math.sin(th)); }
+    sh.lineTo(-a, nais);
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 2.6, bevelEnabled: false }); geo.translate(COULOIRS[c], 0, -1.3);
+    g.add(new THREE.Mesh(geo, pierre));
+    // le dessous de l'arche, plus sombre : on lit tout de suite la hauteur du passage
+    const ombre = new THREE.Mesh(new THREE.PlaneGeometry(2.84, 2.6), mat(0x6f6656, { side: THREE.DoubleSide })); ombre.rotation.x = PI / 2; ombre.position.set(COULOIRS[c], cle - 0.02, 0); g.add(ombre);
+  }
+  for (const x of [-5.1, -1.7, 1.7, 5.1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.62, dessus + 2.4, 3.2), pierre); p.position.set(x, (dessus - 2.4) / 2, 0); g.add(p);
+    const bec = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, dessus + 2.4, 3), pierre); bec.position.set(x, (dessus - 2.4) / 2, -1.6); g.add(bec); }
+  for (const x of [-1, 1]) { const cu = new THREE.Mesh(new THREE.BoxGeometry(6.5, dessus + 2.4, 2.6), pierre); cu.position.set(x * 8.4, (dessus - 2.4) / 2, 0); g.add(cu); }
+  const tablier = new THREE.Mesh(new THREE.BoxGeometry(24, 0.5, 3.1), mat(0xbfb398)); tablier.position.y = dessus + 0.25; g.add(tablier);
+  for (const z of [-1.4, 1.4]) { const par = new THREE.Mesh(new THREE.BoxGeometry(24, 0.7, 0.25), pierre); par.position.set(0, dessus + 0.85, z); g.add(par); }
+  if (e.arrivee) for (const x of [-11.5, 11.5]) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4, 6), mat(0x2a2622)); m.position.set(x, dessus + 2.3, 0); g.add(m);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.2), mat(0xece6da, { side: THREE.DoubleSide })); fl.position.set(x + 1.1 * Math.sign(-x), dessus + 3.6, 0); g.add(fl); }
+  return placer(g, e.s, 0, 0);
+}
+function banc(e) {
+  const g = new THREE.Group(), sable = mat(COL.sable), herbe = mat(0x7d8b55);
+  for (const c of e.couloirs) {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), sable); b.scale.set(1.65, 1, 5.2); b.position.set(COULOIRS[c], BANC_HAUT - 1, 0); g.add(b);
+    const b2 = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 5), mat(0xb9a47a)); b2.scale.set(2.2, 0.7, 6.4); b2.position.set(COULOIRS[c], BANC_HAUT - 1.05, 0.3); g.add(b2);
+    for (let k = 0; k < 3; k++) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.9, 5), herbe); t.position.set(COULOIRS[c] + (hash(e.s + k) - 0.5) * 1.6, BANC_HAUT + 0.3, (hash(e.s * 3 + k) - 0.5) * 6); g.add(t); }
+  }
+  if (e.couloirs.length > 1) for (let k = 0; k < 2; k++) {   // sternes posées sur la grève
+    const o = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 4), mat(0xf2f0ea)); o.scale.set(1, 0.8, 1.8); o.position.set(COULOIRS[e.couloirs[0]] + k * 0.6, BANC_HAUT + 0.15, k); g.add(o);
+  }
+  return placer(g, e.s, 0, 0);
+}
+function silure(e) {
+  const g = new THREE.Group(), peau = mat(0x3b3a33), ventre = mat(0x8c8670);
+  const corps = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), peau); corps.scale.set(0.62, 0.42, 1.8); g.add(corps);
+  const v = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), ventre); v.scale.set(0.5, 0.25, 1.5); v.position.y = -0.18; g.add(v);
+  const tete = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), peau); tete.scale.set(0.72, 0.38, 0.7); tete.position.set(0, 0.02, -1.5); g.add(tete);
+  for (const x of [-1, 1]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 1.6, 4), peau); b.rotation.z = x * 1.2; b.rotation.x = -0.4; b.position.set(x * 0.7, 0, -1.9); g.add(b); }
+  const nag = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 4), peau); nag.position.set(0, 0.48, -0.2); nag.scale.z = 2; g.add(nag);
+  const queue = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.4, 4), peau); queue.rotation.x = -PI / 2; queue.scale.set(0.3, 1, 1); queue.position.set(0, 0, 2.2); g.add(queue);
+  for (const x of [-1, 1]) { const oe = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), mat(0xc9b46a)); oe.position.set(x * 0.38, 0.22, -1.75); g.add(oe); }
+  // remous annonçant le changement de couloir
+  const ronds = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.05, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }));
+  ronds.rotation.x = -PI / 2; e.ronds = ronds;
+  e.queue = queue; e.corps = g;
+  const racine = new THREE.Group(); racine.add(g); racine.add(ronds); scene.add(racine); e.obj = racine;
+  return racine;
+}
+function bateauModele() {
+  const g = new THREE.Group();
+  const forme = new THREE.Shape(); forme.moveTo(-0.62, 1.15); forme.lineTo(0.62, 1.15); forme.lineTo(0.62, -0.5); forme.quadraticCurveTo(0.5, -1.2, 0, -1.55); forme.quadraticCurveTo(-0.5, -1.2, -0.62, -0.5); forme.closePath();
+  const coque = new THREE.ExtrudeGeometry(forme, { depth: 0.62, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 1 });
+  coque.rotateX(PI / 2); coque.translate(0, 0.3, 0);
+  const mc = new THREE.Mesh(coque, mat(0xb8664c)); g.add(mc);
+  const liston = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 2.5), mat(0xece6da)); liston.position.set(0, 0.28, -0.15); g.add(liston);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.6, 0.75), mat(0xf1ece2)); cab.position.set(0, 0.62, 0.55); g.add(cab);
+  const toitc = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.85), mat(0xb8664c)); toitc.position.set(0, 0.96, 0.55); g.add(toitc);
+  const hublot = new THREE.Mesh(new THREE.CircleGeometry(0.13, 12), mat(0x9fb9c6)); hublot.position.set(0, 0.64, 0.17); hublot.rotation.y = PI; g.add(hublot);
+  const mat_ = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.3, 6), mat(0x5a4838)); mat_.position.set(0.3, 0.95, -0.1); g.add(mat_);
+  drapeau = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3, 4, 1), mat(0xc97a5d, { side: THREE.DoubleSide })); drapeau.position.set(0.3, 1.45, 0.15); drapeau.rotation.y = PI / 2; g.add(drapeau);
+  // Lou la loutre, casquette de capitaine
+  const brun = mat(0x7a5236);
+  const corps = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.21, 0.42, 8), brun); corps.position.set(-0.18, 0.55, -0.25); g.add(corps);
+  const tete = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), brun); tete.position.set(-0.18, 0.9, -0.27); g.add(tete);
+  const museau = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), mat(0xe2c9a2)); museau.position.set(-0.18, 0.86, -0.42); g.add(museau);
+  const cas = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.18, 0.1, 10), mat(0xece6da)); cas.position.set(-0.18, 1.06, -0.27); g.add(cas);
+  const bande = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.04, 10), mat(0x1c3242)); bande.position.set(-0.18, 1.02, -0.27); g.add(bande);
+  scene.add(g); return g;
+}
+function piecesModele(n) {
+  const geo = new THREE.TorusGeometry(0.32, 0.08, 6, 16), m = new THREE.InstancedMesh(geo, new THREE.MeshPhongMaterial({ color: 0xd4ae68, specular: 0xfff0c0, shininess: 80, flatShading: true }), n);
+  scene.add(m); return m;
+}
+
+// =====================================================================  partie
+let niv, mode = 'depart', s = 0, vit = 0, couloir = 1, niveauEau = 1, bx = 0, wy = EAU[1], coeurs = 3, invul = 0, chocs = 0, serie = 0, serieMax = 0, pieces = 0, temps = 0, secousse = 0, villeVue = 0, last = 0;
+const ecume = [];
+const camPos = new THREE.Vector3(), camVise = new THREE.Vector3();
+function preparer() {
+  construireTrace();
+  niv = genNiveau(20261025);
+  decor.zones = [...niv.villes.map((v) => ({ s: v.s, lat: 22, r: 24 })), { s: niv.villes[1].s + 30, lat: -36, r: 20 }, { s: LONGUEUR - 20, lat: 34, r: 26 }];
+  construireScene();
+  niv.villes.forEach((v, i) => { scene.add(village(v.s + (i === 0 ? -8 : 10), 1, true)); if (i === 2 || i === 4) scene.add(village(v.s - 6, -1, false)); });
+  scene.add(placer(chateau('Meung'), niv.villes[1].s + 30, -36, 3.2, PI));        // château de Meung-sur-Loire
+  scene.add(placer(chateau('Blois'), LONGUEUR - 20, 34, 3.2, 0));                 // château de Blois, à l'arrivée
+  scene.add(placer(chateau('Ménars'), LONGUEUR - 170, 40, 3.2, 0));               // château de Ménars
+  for (const e of niv.evs) { if (e.type === 'pont') scene.add(pont(e)); else if (e.type === 'banc') scene.add(banc(e)); else silure(e); }
+  mPieces = piecesModele(niv.pieces.length);
+  bateau = bateauModele();
+  const fg = new THREE.CircleGeometry(0.25, 10); fg.rotateX(-PI / 2);
+  sillage = new THREE.InstancedMesh(fg, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), 80); scene.add(sillage);
+  for (let i = 0; i < 80; i++) ecume.push({ s: -999, x: 0, vie: 0 });
+  // repères de villes sur la frise du trajet
+  for (const v of niv.villes) { if (v.nom === 'Saint-Laurent') { v.el = document.createElement('i'); continue; } const d = document.createElement('div'); d.className = 'ville'; d.style.left = `${(v.s / LONGUEUR) * 100}%`; d.textContent = v.nom.replace('-sur-Loire', ''); if (niv.villes.indexOf(v) % 2) d.classList.add('haut'); v.el = d; $('route').append(d); }
+  dessinerMinicarte();
+  redim(); window.addEventListener('resize', redim);
+}
+function redim() {
+  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.fov = w < h ? 64 : 50; camera.updateProjectionMatrix();
+}
+function demarrer() {
+  mode = 'jeu'; s = 0; vit = 0; couloir = 1; niveauEau = 1; bx = 0; wy = EAU[1]; coeurs = 3; invul = 0; chocs = 0; serie = 0; serieMax = 0; pieces = 0; temps = 0; villeVue = 1;
+  for (const p of niv.pieces) p.pris = false;
+  for (const e of niv.evs) { e.passe = false; e.touche = false; if (e.type === 'silure') { e.c = e.c0; e.x = COULOIRS[e.c0]; e.phase = 0; } }
+  for (const v of niv.villes) v.el.classList.remove('passee');
+  niv.villes[0].el.classList.add('passee');
+  $('ecran-depart').hidden = true; $('ecran-fin').hidden = true; $('hud').hidden = false;
+  $('aide').innerHTML = matchMedia('(pointer: coarse)').matches ? 'Glisse ← → pour changer de couloir<br>Glisse ↑ ↓ pour monter ou baisser l’eau' : 'Flèches ← → : couloir · ↑ ↓ : niveau de l’eau';
+  $('aide').style.opacity = 1; setTimeout(() => { $('aide').style.opacity = 0; }, 5000);
+  majHud(); audio(); son.ambiance(true);
+  banniere('Orléans', 'Départ · km 0');
+}
+function banniere(nom, l) {
+  const el = $('banniere'); $('ban-n').textContent = nom; $('ban-l').textContent = l;
+  el.hidden = true; void el.offsetWidth; el.hidden = false; clearTimeout(banniere.t); banniere.t = setTimeout(() => { el.hidden = true; }, 3000);
+}
+function bouger(dc, dn) {
+  if (mode !== 'jeu') return;
+  if (dc) { const c = clamp(couloir + dc, 0, 2); if (c !== couloir) { couloir = c; son.glisse(); vibre(8); } }
+  if (dn) { const n = clamp(niveauEau + dn, 0, 2); if (n !== niveauEau) { niveauEau = n; son.eau(dn); vibre(8); } }
+  majJauge();
+}
+function choc(e) {
+  if (e) e.touche = true;
+  if (invul > 0) return;
+  coeurs--; chocs++; invul = 1.3; secousse = 0.5; serie = 0; son.choc(); vibre([40, 30, 40]);
+  $('flash').style.transition = 'none'; $('flash').style.opacity = 1; requestAnimationFrame(() => { $('flash').style.transition = 'opacity .6s'; $('flash').style.opacity = 0; });
+  majHud();
+  if (coeurs <= 0) finir(false);
+}
+function collisions() {
+  const x0 = bx - 0.55, x1 = bx + 0.55;
+  for (const e of niv.evs) {
+    const ds = e.s - s;
+    if (ds > 8 || ds < -8) continue;
+    if (e.type === 'pont' && Math.abs(ds) < 1.3 + 1.1) {
+      for (let c = 0; c < 3; c++) { const cx = COULOIRS[c]; if (x1 > cx - 1.42 && x0 < cx + 1.42 && wy + HAUT_BATEAU > VOUTES[e.voutes[c]] - 0.05) { choc(e); break; } }
+      for (const px of [-5.1, -1.7, 1.7, 5.1]) if (x1 > px - 0.31 && x0 < px + 0.31) { choc(e); break; }
+    } else if (e.type === 'banc' && Math.abs(ds) < 4.6 + 1.0) {
+      if (wy - QUILLE < BANC_HAUT) for (const c of e.couloirs) if (x1 > COULOIRS[c] - 1.3 && x0 < COULOIRS[c] + 1.3) { choc(e); break; }
+    } else if (e.type === 'silure' && Math.abs(ds) < 1.8 + 1.0) {
+      if (x1 > e.x - 0.65 && x0 < e.x + 0.65) choc(e);
+    }
+    if (!e.passe && ds < -2.5) { e.passe = true; if (!e.touche) { serie++; serieMax = Math.max(serieMax, serie); son.tic(serie); } majHud(); }
+  }
+  for (let i = 0; i < niv.pieces.length; i++) {
+    const p = niv.pieces[i]; if (p.pris || Math.abs(p.s - s) > 1.1) continue;
+    if (Math.abs(COULOIRS[p.c] - bx) < 1.1 && Math.abs(EAU[p.n] - wy) < 0.45) { p.pris = true; pieces += 1 + Math.floor(serie / 10); son.piece(); majHud(); }
+  }
+}
+function finir(gagne) {
+  mode = 'fin'; son.ambiance(false); $('banniere').hidden = true;
+  const et = gagne ? (chocs === 0 ? 3 : chocs === 1 ? 2 : 1) : 0;
+  $('f-sur').textContent = gagne ? 'Arrivée' : 'Naufrage';
+  $('f-titre').textContent = gagne ? 'Blois' : `km ${Math.round((s / LONGUEUR) * LONG_KM)}`;
+  $('f-etoiles').innerHTML = gagne ? '★'.repeat(et) + `<i>${'★'.repeat(3 - et)}</i>` : '';
+  $('f-stats').innerHTML = `<li><b>${Math.round((clamp(s, 0, LONGUEUR) / LONGUEUR) * LONG_KM)} km</b> de Loire parcourus en ${Math.round(temps)} s</li><li>Chocs : <b>${chocs}</b> · meilleure série : <b>${serieMax}</b></li><li>Pièces ramassées : <b>${pieces}</b></li>`;
+  setTimeout(() => { $('hud').hidden = true; $('ecran-fin').hidden = false; }, gagne ? 900 : 600);
+  if (gagne) son.victoire();
+  try { const k = 'maree.loire.v1', b = JSON.parse(localStorage.getItem(k) || '{}'); b.etoiles = Math.max(b.etoiles || 0, et); localStorage.setItem(k, JSON.stringify(b)); } catch (e) {}
+}
+function majHud() {
+  $('coeurs').innerHTML = '♥'.repeat(Math.max(0, coeurs)) + `<i>${'♥'.repeat(3 - Math.max(0, coeurs))}</i>`;
+  $('pieces').textContent = pieces;
+  $('serie-n').textContent = serie; $('serie').className = serie >= 3 ? '' : 'zero';
+  majJauge();
+}
+function majJauge() { [...$('jauge').children].forEach((el, i) => el.classList.toggle('on', 2 - i === niveauEau)); }
+function majRoute() {
+  const p = clamp(s / LONGUEUR, 0, 1) * 100; $('fait').style.width = `${p}%`; $('point').style.left = `${p}%`;
+  for (let i = villeVue; i < niv.villes.length; i++) {
+    const v = niv.villes[i]; if (s < v.s - 6) break;
+    villeVue = i + 1; v.el.classList.add('passee');
+    if (i < niv.villes.length - 1) { banniere(v.nom, `km ${Math.round((v.s / LONGUEUR) * LONG_KM)}`); son.cloche(); }
+  }
+  dessinerMinicarte(true);
+}
+let miniFond = null;
+function dessinerMinicarte(point) {
+  const cv = $('minicarte'), c = cv.getContext('2d'), w = cv.width, h = cv.height;
+  const tous = LOIRE_ENTIERE.flat(), lx = tous.map((p) => p[0]), ly = tous.map((p) => p[1]);
+  const x0 = Math.min(...lx), x1 = Math.max(...lx), y0 = Math.min(...ly), y1 = Math.max(...ly), k = Math.min((w - 20) / ((x1 - x0) * 0.68), (h - 20) / (y1 - y0));
+  const P = ([lon, lat]) => [10 + (lon - x0) * 0.68 * k, h - 10 - (lat - y0) * k];
+  if (!miniFond) {
+    c.clearRect(0, 0, w, h); c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = 'rgba(150,195,215,.55)'; c.lineWidth = 2.5;
+    for (const l of LOIRE_ENTIERE) { c.beginPath(); l.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke(); }
+    c.strokeStyle = '#d9b56f'; c.lineWidth = 4; c.beginPath(); TRONCON.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke();
+    miniFond = c.getImageData(0, 0, w, h);
+  }
+  c.putImageData(miniFond, 0, 0);
+  if (!point) return;
+  // position actuelle, interpolée le long du vrai tracé
+  const f = clamp(s / LONGUEUR, 0, 1) * (TRONCON.length - 1), i = Math.min(Math.floor(f), TRONCON.length - 2), t = f - i;
+  const [x, y] = P([lerp(TRONCON[i][0], TRONCON[i + 1][0], t), lerp(TRONCON[i][1], TRONCON[i + 1][1], t)]);
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, 5, 0, 2 * PI); c.fill();
+}
+
+// ---- boucle
+function boucle(t) {
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  pas(dt);
+  rendre(dt, t / 1000);
+  requestAnimationFrame(boucle);
+}
+function pas(dt) {
+  if (mode === 'jeu') {
+    temps += dt;
+    const cible = lerp(12.5, 18.5, clamp(s / LONGUEUR, 0, 1));
+    vit = lerp(vit, cible, 1 - Math.exp(-dt * 1.5)); s += vit * dt;
+    invul = Math.max(0, invul - dt);
+    bx = lerp(bx, COULOIRS[couloir], 1 - Math.exp(-dt * 13));
+    wy = lerp(wy, EAU[niveauEau], 1 - Math.exp(-dt * 10));
+    // silures : ils guettent, préviennent par des remous, puis changent de couloir
+    for (const e of niv.evs) if (e.type === 'silure') {
+      const d = e.s - s;
+      if (e.phase === 0 && d < 34) { e.phase = 1; e.t = 0; }
+      if (e.phase === 1) { e.t += dt; if (e.t > 0.6) { e.phase = 2; e.t = 0; son.silure(); } }
+      if (e.phase === 2) { e.t += dt; e.x = lerp(COULOIRS[e.c0], COULOIRS[e.c1], clamp(e.t / 0.45, 0, 1)); if (e.t >= 0.45) { e.phase = 3; e.c = e.c1; } }
+    }
+    collisions();
+    if (s >= LONGUEUR + 2) finir(true);
+    majRoute();
+  } else if (mode === 'fin') { s += vit * dt * 0.6; vit *= 0.98; }
+}
+function rendre(dt, h) {
+  const f = cadre(s), up = new THREE.Vector3(0, 1, 0);
+  // eau : la nappe entière suit le niveau, avec une légère houle
+  eauMesh.position.y = wy;
+  const a = eauGeo.attributes.position.array;
+  const i0 = Math.max(0, Math.floor((s + S0) / PAS) - 20) * 11, i1 = Math.min(a.length / 3, (Math.floor((s + S0) / PAS) + 110) * 11);
+  for (let i = i0; i < i1; i++) { const x = eauBase[i * 3], z = eauBase[i * 3 + 2]; a[i * 3 + 1] = Math.sin(x * 0.7 + h * 1.6) * 0.06 + Math.sin(z * 0.5 - h * 1.3) * 0.07; }
+  eauGeo.attributes.position.needsUpdate = true;
+  // bateau
+  const pos = f.p.clone().addScaledVector(f.d, bx).setY(wy + Math.sin(h * 2.6) * 0.04);
+  bateau.position.copy(pos);
+  const m = new THREE.Matrix4().makeBasis(f.d, up, f.t.clone().negate()); bateau.quaternion.setFromRotationMatrix(m);
+  bateau.rotateZ((COULOIRS[couloir] - bx) * -0.06); bateau.rotateX((EAU[niveauEau] - wy) * 0.08 + Math.sin(h * 2.1) * 0.015);
+  bateau.visible = !(invul > 0 && Math.floor(h * 14) % 2 === 0);
+  drapeau.rotation.x = Math.sin(h * 9) * 0.25;
+  // sillage
+  if (mode === 'jeu' && Math.random() < 0.9) { const e = ecume.find((q) => q.vie <= 0); if (e) { e.s = s - 1.1; e.x = bx + (Math.random() - 0.5) * 0.9; e.vie = 1; } }
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  ecume.forEach((e, i) => { e.vie -= dt * 0.9; const g = cadre(e.s), k = Math.max(0, e.vie); sc.setScalar(k > 0 ? 0.4 + (1 - k) * 1.6 : 0.0001); m4.compose(g.p.clone().addScaledVector(g.d, e.x + (e.x - bx) * (1 - k)).setY(wy + 0.08), q, sc); sillage.setMatrixAt(i, m4); });
+  sillage.instanceMatrix.needsUpdate = true;
+  // pièces
+  niv.pieces.forEach((p, i) => { const g = cadre(p.s), k = p.pris || p.s < s - 4 || p.s > s + 140 ? 0.0001 : 1; m4.makeBasis(g.d, up, g.t.clone().negate()); const rq = new THREE.Quaternion().setFromRotationMatrix(m4).multiply(new THREE.Quaternion().setFromAxisAngle(up, h * 3 + i)); sc.setScalar(k); m4.compose(g.p.clone().addScaledVector(g.d, COULOIRS[p.c]).setY(EAU[p.n] + 0.85 + Math.sin(h * 3 + i) * 0.06), rq, sc); mPieces.setMatrixAt(i, m4); });
+  mPieces.instanceMatrix.needsUpdate = true;
+  // silures
+  for (const e of niv.evs) if (e.type === 'silure') {
+    const g = cadre(e.s); e.obj.position.copy(g.p).addScaledVector(g.d, e.x).setY(wy - 0.12);
+    e.obj.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(g.d, up, g.t.clone().negate()));
+    const vire = e.phase === 1 ? Math.sin(e.t * 30) * 0.12 + (e.c1 - e.c0) * 0.25 : e.phase === 2 ? (e.c1 - e.c0) * 0.5 * (1 - e.t / 0.45) : 0;
+    e.corps.rotation.y = -vire; e.queue.rotation.y = Math.sin(h * 8 + e.s) * 0.4;
+    e.ronds.position.set((e.phase === 1 ? COULOIRS[e.c1] - e.x : 0), 0.14, 0);
+    e.ronds.material.opacity = e.phase === 1 ? 0.55 + Math.sin(e.t * 20) * 0.3 : 0; e.ronds.scale.setScalar(1 + (e.t || 0) * 1.5);
+  }
+  // caméra de poursuite, derrière et au-dessus
+  const camEau = lerp(EAU[1], wy, 0.55);
+  const fc = cadre(s - 9.5);
+  const voulu = fc.p.clone().addScaledVector(fc.d, bx * 0.55).setY(camEau + 5.2), vise = cadre(s + 14).p.clone().addScaledVector(f.d, bx * 0.35).setY(camEau + 0.6);
+  const k = 1 - Math.exp(-dt * 7); if (!camPos.lengthSq()) { camPos.copy(voulu); camVise.copy(vise); }
+  camPos.lerp(voulu, k); camVise.lerp(vise, k);
+  camera.position.copy(camPos);
+  if (secousse > 0) { secousse = Math.max(0, secousse - dt); camera.position.x += (Math.random() - 0.5) * secousse * 0.8; camera.position.y += (Math.random() - 0.5) * secousse * 0.5; }
+  camera.lookAt(camVise);
+  decor.dome.position.copy(camera.position);
+  const sdir = new THREE.Vector3(-0.45, 0.3, -1).normalize(); decor.soleil.position.copy(camera.position).addScaledVector(sdir, 420); decor.soleil.lookAt(camera.position);
+  decor.sun.position.copy(pos).add(new THREE.Vector3(-60, 70, -90)); decor.sun.target.position.copy(pos);
+  renderer.render(scene, camera);
+}
+
+// ---- commandes : glisser (tactile ou souris) et flèches
+let geste = null;
+$('app').addEventListener('pointerdown', (ev) => { audio(); if (mode === 'jeu') geste = { x: ev.clientX, y: ev.clientY }; });
+$('app').addEventListener('pointermove', (ev) => {
+  if (!geste || mode !== 'jeu') return;
+  const dx = ev.clientX - geste.x, dy = ev.clientY - geste.y, seuil = 26;
+  if (Math.abs(dx) > seuil && Math.abs(dx) > Math.abs(dy)) { bouger(Math.sign(dx), 0); geste.x = ev.clientX; geste.y = ev.clientY; }
+  else if (Math.abs(dy) > seuil) { bouger(0, -Math.sign(dy)); geste.x = ev.clientX; geste.y = ev.clientY; }
+});
+addEventListener('pointerup', () => { geste = null; }); addEventListener('pointercancel', () => { geste = null; });
+addEventListener('keydown', (ev) => {
+  const k = ev.key.toLowerCase();
+  if (mode === 'depart' && (k === 'enter' || k === ' ')) { audio(); demarrer(); return; }
+  if (mode !== 'jeu' || ev.repeat) return;
+  if (k === 'arrowleft' || k === 'q' || k === 'a') bouger(-1, 0);
+  else if (k === 'arrowright' || k === 'd') bouger(1, 0);
+  else if (k === 'arrowup' || k === 'z' || k === 'w') bouger(0, 1);
+  else if (k === 'arrowdown' || k === 's') bouger(0, -1);
+  else return;
+  ev.preventDefault();
+});
+const vibre = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+
+// ---- sons, tous synthétisés
+let ac = null, sortie = null, amb = null;
+function audio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  sortie = ac.createDynamicsCompressor(); sortie.connect(ac.destination);
+  const n = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), d = n.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource(); src.buffer = n; src.loop = true; const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520;
+  amb = ac.createGain(); amb.gain.value = 0; src.connect(f).connect(amb).connect(sortie); src.start();
+  son.bruit = n;
+}
+function osc(type, f0, f1, dur, vol, t0 = 0) {
+  if (!ac) return; const t = ac.currentTime + t0, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(sortie); o.start(t); o.stop(t + dur + 0.05);
+}
+function souffle(dur, vol, f0, f1) {
+  if (!ac || !son.bruit) return; const t = ac.currentTime, s_ = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+  s_.buffer = son.bruit; f.type = 'bandpass'; f.Q.value = 2; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s_.connect(f).connect(g).connect(sortie); s_.start(t); s_.stop(t + dur);
+}
+const son = {
+  ambiance(on) { if (amb) amb.gain.setTargetAtTime(on ? 0.06 : 0, ac.currentTime, 0.5); },
+  glisse() { souffle(0.18, 0.25, 900, 2200); },
+  eau(d) { souffle(0.3, 0.3, d > 0 ? 350 : 1400, d > 0 ? 1400 : 320); osc('sine', d > 0 ? 300 : 520, d > 0 ? 560 : 290, 0.16, 0.08); },
+  piece() { const f = 1568 + Math.random() * 180; osc('sine', f, 0, 0.4, 0.08); osc('sine', f * 2.76, 0, 0.2, 0.025); },
+  tic(n) { osc('triangle', 523 * Math.pow(2, (n % 12) / 12), 0, 0.16, 0.05); },
+  choc() { souffle(0.35, 0.5, 300, 90); osc('square', 110, 55, 0.25, 0.08); },
+  silure() { souffle(0.4, 0.22, 500, 160); },
+  cloche() { [0, 0.5].forEach((t0) => { osc('sine', 659, 0, 1.6, 0.06, t0); osc('sine', 659 * 2.4, 0, 0.8, 0.02, t0); }); },
+  victoire() { [0, 4, 7, 12].forEach((d, i) => osc('triangle', 392 * Math.pow(2, d / 12), 0, 0.5, 0.08, i * 0.09)); },
+};
+
+// ---- démarrage
+$('b-partir').onclick = () => { audio(); demarrer(); };
+$('b-rejouer').onclick = () => { audio(); demarrer(); };
+try {
+  if (!window.THREE) throw new Error('three.js absent');
+  preparer(); requestAnimationFrame(boucle);
+} catch (e) { console.error(e); $('erreur').hidden = false; $('ecran-depart').hidden = true; }
+</script>
+<!--WRAP-BODY-END-->
+</body>
+</html>
