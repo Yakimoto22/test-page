@@ -548,7 +548,9 @@ try {
     if (save.stars[0] > 0) save.tuto = save.tuto || true;
   }
 } catch (e) {}
-function persist() { try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) {} }
+// Mode test : la réserve de pièces se recharge à chaque sauvegarde, pour essayer toute la boutique.
+const PIECES_TEST = 999999;
+function persist() { if (save.test) save.pieces = PIECES_TEST; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) {} }
 const unlocked = (i) => (i >= 50 ? save.lagon && (i === 50 || save.stars[i - 1] > 0) : i === 0 || save.stars[i - 1] > 0);
 const mondeOuvert = (w) => unlocked(w * 10);
 const lacOuvert = (w) => save.stars[w * 10 + 4] > 0;
@@ -1950,6 +1952,10 @@ function renderBoutique() {
   for (const b of $('onglets').children) b.classList.toggle('actif', b.dataset.tab === boutTab);
   const C = $('bout-contenu'); C.innerHTML = '';
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+  const test = el('button', 'mini', save.test ? 'Mode test : pièces infinies · désactiver' : 'Mode test : pièces infinies · activer');
+  test.style.justifySelf = 'center'; if (save.test) test.style.borderColor = 'var(--or)', test.style.color = 'var(--or)';
+  test.onclick = () => { save.test = !save.test; if (!save.test) save.pieces = save.piecesAvantTest ?? 0; else save.piecesAvantTest = save.pieces; persist(); sfx.clic(); renderBoutique(); };
+  C.append(test);
   if (boutTab === 'boites') {
     C.append(el('p', 'note', 'Chaque boîte contient un objet. Un objet déjà possédé est remboursé en pièces.'));
     const minutes = ['Au moins 5 min de jeu', 'Environ 20 min de jeu', 'Au moins 1 h de jeu'];
