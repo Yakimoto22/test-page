@@ -250,7 +250,7 @@ function genNiveau(seed) {
 }
 
 // =====================================================================  scène 3D
-let renderer, scene, camera, eauMesh, eauGeo, eauBase, sillage, bateau, drapeau, mPieces, decor = {};
+let reflet, camReflet, renderer, scene, camera, eauMesh, eauGeo, eauBase, sillage, bateau, drapeau, mPieces, decor = {};
 const COL = { herbe: 0x7b8d5a, herbe2: 0x6c7f4e, levee: 0x8d9867, sable: 0xcdb98f, sableMouille: 0xa48f6a, lit: 0x6b6150, tuffeau: 0xe6dcc6, ardoise: 0x56616c, pierre: 0xd8ccb2, eau: 0x5b8a98, bois: 0x7a5a3e, boisFonce: 0x4e3b2a };
 const mat = (c, o = {}) => new THREE.MeshLambertMaterial(Object.assign({ color: c }, o));
 const UP = new THREE.Vector3(0, 1, 0);
@@ -283,14 +283,15 @@ function placer(obj, s, lat, y, rot = 0) {
   obj.position.copy(f.p).addScaledVector(f.d, lat).setY(y); return obj;
 }
 function ruban(colonnes, couleurs, bruit) {
-  const n = PTS.length, m = colonnes.length, pos = new Float32Array(n * m * 3), col = new Float32Array(n * m * 3), idx = [], c = new THREE.Color();
+  const n = PTS.length, m = colonnes.length, pos = new Float32Array(n * m * 3), col = new Float32Array(n * m * 3), uv = new Float32Array(n * m * 2), idx = [], c = new THREE.Color();
   for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
     const [lat, y] = colonnes[j], k = (i * m + j) * 3, p = PTS[i], d = DROITE[i], b = bruit ? bruit(i, j) : 0;
     pos[k] = p.x + d.x * lat; pos[k + 1] = y + b; pos[k + 2] = p.z + d.z * lat;
     c.setHex(couleurs[j]); c.offsetHSL(0, 0, (hash(i * 7.1 + j) - 0.5) * 0.05); col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+    uv[(i * m + j) * 2] = lat; uv[(i * m + j) * 2 + 1] = i * PAS - S0;
   }
   for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) { const a = i * m + j, b = a + m; idx.push(a, a + 1, b, a + 1, b + 1, b); }   // faces tournées vers le ciel
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
 const BORD = 8.6;   // demi-largeur du lit en eau
@@ -326,65 +327,172 @@ function construireScene() {
   const sun = new THREE.DirectionalLight(0xffe6c0, 0.85); sun.position.set(-60, 70, -90); scene.add(sun, sun.target); decor.sun = sun;
   // terrain : prairies, levées, grèves de sable et lit du fleuve
   const couleurs = [COL.herbe2, COL.herbe2, COL.herbe, COL.herbe, COL.levee, COL.sable, COL.sableMouille, COL.lit, COL.lit, COL.lit, COL.sableMouille, COL.sable, COL.levee, COL.herbe, COL.herbe, COL.herbe2, COL.herbe2];
-  scene.add(new THREE.Mesh(ruban(PROFIL, couleurs, bruitSol), new THREE.MeshLambertMaterial({ vertexColors: true })));
+  const detail = texture((g, w, h) => { g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 9000; i++) { const v = 150 + Math.random() * 105; g.fillStyle = `rgb(${v},${v},${v})`; const x = Math.random() * w, y = Math.random() * h; g.fillRect(x, y, 1 + Math.random() * 1.5, 2 + Math.random() * 4); } }, 256, 256);
+  detail.repeat.set(0.3, 0.3);
+  scene.add(new THREE.Mesh(ruban(PROFIL, couleurs, bruitSol), new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })));
   // eau : une seule nappe qui monte et descend ; teinte plus claire au milieu (le courant)
-  const cols = [], cc2 = []; for (let j = 0; j <= 14; j++) { cols.push([-12 + j * (24 / 14), 0]); cc2.push(Math.abs(j - 7) < 3 ? 0x6496a3 : 0x55838f); }
-  eauGeo = ruban(cols, cc2); eauBase = eauGeo.attributes.position.array.slice();
-  eauMesh = new THREE.Mesh(eauGeo, new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, shininess: 8, specular: 0x222222, transparent: true, opacity: 0.9 }));
+  const cols = []; for (let j = 0; j <= 30; j++) cols.push([-13 + j * (26 / 30), 0]);
+  eauGeo = ruban(cols, cols.map(() => 0xffffff));
+  reflet = new THREE.WebGLRenderTarget(256, 256); camReflet = camera.clone();
+  eauMesh = new THREE.Mesh(eauGeo, new THREE.ShaderMaterial({
+    transparent: true,
+    uniforms: { uTemps: { value: 0 }, uRive: { value: 9.6 }, tReflet: { value: reflet.texture }, uMatReflet: { value: new THREE.Matrix4() },
+      uSoleil: { value: new THREE.Vector3(-60, 70, -90).normalize() }, uProfond: { value: new THREE.Color(0x22474f) }, uClair: { value: new THREE.Color(0x4f8892) }, uSable: { value: new THREE.Color(0x9e9070) },
+      fogColor: { value: scene.fog.color }, fogNear: { value: scene.fog.near }, fogFar: { value: scene.fog.far } },
+    vertexShader: `
+      uniform float uTemps; uniform mat4 uMatReflet;
+      varying vec3 vMonde; varying vec2 vUv; varying vec4 vProj;
+      void main() {
+        vec3 p = position;
+        p.y += sin(uv.x * 0.9 + uTemps * 1.7 + uv.y * 0.2) * 0.04 + sin(uv.y * 0.45 - uTemps * 1.9) * 0.05;
+        vec4 w = modelMatrix * vec4(p, 1.0);
+        vMonde = w.xyz; vUv = uv; vProj = uMatReflet * w;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `
+      uniform float uTemps, uRive, fogNear, fogFar; uniform sampler2D tReflet; uniform vec3 uSoleil, uProfond, uClair, uSable, fogColor;
+      varying vec3 vMonde; varying vec2 vUv; varying vec4 vProj;
+      float h1(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float bruit(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h1(i), h1(i + vec2(1, 0)), f.x), mix(h1(i + vec2(0, 1)), h1(i + vec2(1, 1)), f.x), f.y); }
+      // le courant descend le fleuve (v croissant) : les rides défilent vers l'aval
+      float houle(vec2 p) { float t = uTemps;
+        return bruit(p * vec2(0.8, 0.35) + vec2(0.0, -t * 0.7)) * 0.5 + bruit(p * vec2(1.9, 0.9) + vec2(t * 0.25, -t * 1.5)) * 0.25
+             + bruit(p * vec2(4.3, 2.4) + vec2(-t * 0.4, -t * 2.6)) * 0.14 + bruit(p * vec2(9.0, 6.0) + vec2(0.0, -t * 3.8)) * 0.03; }
+      void main() {
+        vec2 p = vUv; float e = 0.06;
+        float hc = houle(p), hx = houle(p + vec2(e, 0.0)), hy = houle(p + vec2(0.0, e));
+        vec3 n = normalize(vec3(-(hx - hc) / e * 0.3, 1.0, -(hy - hc) / e * 0.3));
+        vec3 V = normalize(cameraPosition - vMonde);
+        float fres = 0.03 + 0.97 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+        vec2 uvR = vProj.xy / vProj.w + n.xz * 0.045;
+        vec3 refl = texture2D(tReflet, uvR).rgb;
+        float bord = abs(vUv.x), peu = smoothstep(uRive - 3.5, uRive, bord);
+        vec3 fond = mix(uProfond, uClair, 0.35 + 0.65 * smoothstep(0.0, 1.0, hc));
+        fond = mix(fond, uSable, peu * 0.45);
+        vec3 col = mix(fond, refl, clamp(fres * 1.3 + 0.32, 0.0, 0.88));
+        float spec = pow(max(dot(reflect(-uSoleil, n), V), 0.0), 90.0);
+        col += vec3(1.0, 0.94, 0.82) * spec * 0.55;
+        // écume là où l'eau touche la grève, et traînées du courant
+        float d = uRive - bord, ec = bruit(vUv * vec2(3.0, 0.9) + vec2(0.0, -uTemps * 1.4));
+        float mousse = smoothstep(0.7, 0.0, d) * smoothstep(0.4, 0.8, ec + (0.7 - d) * 0.4);
+        float trainee = smoothstep(0.72, 0.9, bruit(vUv * vec2(1.4, 0.08) + vec2(0.0, -uTemps * 0.6))) * 0.12;
+        col = mix(col, vec3(0.92, 0.93, 0.9), clamp(mousse * 0.6 + trainee, 0.0, 1.0));
+        float a = clamp(mix(0.72, 0.97, fres) + mousse * 0.3 - peu * 0.12, 0.0, 1.0);
+        float brume = smoothstep(fogNear, fogFar, length(cameraPosition - vMonde));
+        gl_FragColor = vec4(mix(col, fogColor, brume), a);
+      }`,
+  }));
   scene.add(eauMesh);
   construireDecor();
 }
-// ---- végétation : chaque essence est un modèle composé (tronc, branches, houppier en grappes)
-// fusionné en un seul maillage coloré, puis répété en instances.
-function fusion(morceaux) {   // [géométrie, couleur] → une géométrie non indexée avec couleurs par sommet
-  const pos = [], nor = [], col = [], c = new THREE.Color();
-  for (const [g0, couleur, nuance = 0.04] of morceaux) {
-    const g = g0.index ? g0.toNonIndexed() : g0; g.computeVertexNormals();
-    const p = g.attributes.position, n = g.attributes.normal;
-    for (let i = 0; i < p.count; i += 3) { c.setHex(couleur).offsetHSL(0, 0, (Math.random() - 0.5) * nuance); for (let k = 0; k < 3; k++) { pos.push(p.getX(i + k), p.getY(i + k), p.getZ(i + k)); nor.push(n.getX(i + k), n.getY(i + k), n.getZ(i + k)); col.push(c.r, c.g, c.b); } }
+// ---- végétation détaillée : vrais troncs et branches, feuillage en cartes de feuilles dessinées
+// (chaque carte porte des centaines de feuilles peintes, découpées par transparence), répété en instances.
+function fusionner(geos) {   // géométries → une seule (positions, normales, UV), non indexée
+  const pos = [], nor = [], uv = [];
+  for (const g0 of geos) {
+    const g = g0.index ? g0.toNonIndexed() : g0, p = g.attributes.position, n = g.attributes.normal, t = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) { pos.push(p.getX(i), p.getY(i), p.getZ(i)); nor.push(n.getX(i), n.getY(i), n.getZ(i)); uv.push(t ? t.getX(i) : 0, t ? t.getY(i) : 0); }
   }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   return g;
 }
 const geo = (g, x = 0, y = 0, z = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) => { g.scale(sx, sy, sz); g.rotateX(rx); g.rotateZ(rz); g.translate(x, y, z); return g; };
+function fusion(morceaux) { return fusionner(morceaux.map((m) => m[0])); }
+function branche(a, b, r0, r1) {   // cylindre de a vers b, plus fin au bout
+  const d = b.clone().sub(a), l = d.length(), g = new THREE.CylinderGeometry(r1, r0, l, 8, 3);
+  const p = g.attributes.position;   // léger tors de l'écorce
+  for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + Math.sin(y * 2.3 + l) * r0 * 0.15); }
+  g.translate(0, l / 2, 0); g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, d.normalize()))); g.translate(a.x, a.y, a.z); g.computeVertexNormals();
+  return g;
+}
+function carte(c, taille, centre, r, haut = 1) {   // touffe : trois plans croisés, normales tournées vers l'extérieur de la couronne
+  const out = [];
+  for (let k = 0; k < 3; k++) {
+    const g = new THREE.PlaneGeometry(taille, taille * haut); g.rotateY(k * PI / 3 + r() * 0.5); g.rotateX((r() - 0.5) * 0.6); g.translate(c.x, c.y, c.z);
+    const p = g.attributes.position, n = g.attributes.normal;
+    for (let i = 0; i < p.count; i++) { const v = new THREE.Vector3(p.getX(i) - centre.x, (p.getY(i) - centre.y) * 1.4, p.getZ(i) - centre.z).normalize(); n.setXYZ(i, v.x, Math.max(v.y, -0.2) + 0.25, v.z); }
+    out.push(g);
+  }
+  return out;
+}
+function texFeuilles(sorte) {
+  return texture((g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    const R = Math.random, teinte = sorte === 'saule' ? [78, 92] : sorte === 'peup' ? [88, 100] : [82, 98];
+    const feuille = (x, y, l, la, an, lum) => { g.save(); g.translate(x, y); g.rotate(an); g.fillStyle = `hsl(${teinte[0] + R() * (teinte[1] - teinte[0])},${32 + R() * 14}%,${lum}%)`; g.beginPath(); g.ellipse(0, 0, l, la, 0, 0, 2 * PI); g.fill();
+      g.strokeStyle = `hsla(70,30%,${lum + 12}%,.5)`; g.lineWidth = 0.8; g.beginPath(); g.moveTo(-l * 0.8, 0); g.lineTo(l * 0.8, 0); g.stroke(); g.restore(); };
+    if (sorte === 'saule') {   // rameaux qui retombent, garnis de feuilles fines
+      for (let k = 0; k < 46; k++) { const x0 = 20 + R() * (w - 40), lg = h * (0.5 + R() * 0.45);
+        g.strokeStyle = 'rgba(90,80,50,.6)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, 0); g.quadraticCurveTo(x0 + (R() - 0.5) * 30, lg * 0.5, x0 + (R() - 0.5) * 20, lg); g.stroke();
+        for (let t = 0; t < lg; t += 5) feuille(x0 + Math.sin(t * 0.05 + k) * 6 + (R() - 0.5) * 6, t, 7 + R() * 4, 1.8, PI / 2 + (R() - 0.5) * 0.8, 30 + (1 - t / h) * 18 + R() * 10); }
+      return;
+    }
+    // touffe arrondie : plus dense au centre, ombrée en bas, éclairée en haut à gauche
+    const n = sorte === 'peup' ? 900 : 700, L = sorte === 'peup' ? 8 : 11;
+    for (let k = 0; k < n; k++) {
+      const a = R() * 2 * PI, d = Math.sqrt(R()) * w * 0.46, x = w / 2 + Math.cos(a) * d, y = h / 2 + Math.sin(a) * d * (sorte === 'peup' ? 1 : 0.9);
+      const lum = 20 + (1 - y / h) * 22 + (1 - x / w) * 6 + R() * 10 - (d / (w * 0.46)) * 4;
+      feuille(x, y, L * (0.7 + R() * 0.6), L * 0.45, R() * PI, lum);
+    }
+    g.strokeStyle = 'rgba(70,55,40,.55)'; g.lineWidth = 2; for (let k = 0; k < 10; k++) { g.beginPath(); g.moveTo(w / 2, h * 0.95); g.lineTo(w / 2 + (R() - 0.5) * w * 0.7, h * (0.25 + R() * 0.5)); g.stroke(); }
+  }, 512, 512);
+}
 let ESSENCES = null;
 function essences() {
   if (ESSENCES) return ESSENCES;
-  const r = rng32(7), ecorce = 0x5a4636, ecorce2 = 0x6b5643;
-  // chêne : tronc noueux, trois maîtresses branches, houppier en grappes de feuilles
-  const chene = [[geo(new THREE.CylinderGeometry(0.22, 0.34, 3.2, 7), 0, 1.6), ecorce]];
-  for (let k = 0; k < 3; k++) { const a = k * 2.1; chene.push([geo(new THREE.CylinderGeometry(0.07, 0.14, 1.8, 5), Math.cos(a) * 0.45, 3.4, Math.sin(a) * 0.45, Math.sin(a) * 0.6, -Math.cos(a) * 0.6), ecorce2]); }
-  for (let k = 0; k < 12; k++) { const a = r() * 2 * PI, d = k ? 0.7 + r() * 0.9 : 0; chene.push([geo(new THREE.IcosahedronGeometry(0.85 + r() * 0.55, 0), Math.cos(a) * d, 4.2 + r() * 1.4 + (k ? 0 : 0.8), Math.sin(a) * d, 0, 0, 1, 0.8, 1), [0x5f7146, 0x6b7d4e, 0x76874f][k % 3], 0.08]); }
-  // peuplier d'Italie : colonne étroite de feuillage en étages
-  const peup = [[geo(new THREE.CylinderGeometry(0.12, 0.2, 2.2, 6), 0, 1.1), ecorce]];
-  for (let k = 0; k < 6; k++) peup.push([geo(new THREE.IcosahedronGeometry(0.75 - k * 0.07, 0), (r() - 0.5) * 0.25, 2.4 + k * 1.15, (r() - 0.5) * 0.25, 0, 0, 1, 1.5, 1), k % 2 ? 0x5c6e43 : 0x66784a, 0.08]);
-  // saule : tronc penché, dôme clair et rideau de rameaux qui tombent jusqu'au sol
-  const saule = [[geo(new THREE.CylinderGeometry(0.2, 0.32, 2.6, 6), 0.25, 1.2, 0, 0, -0.18), ecorce2]];
-  saule.push([geo(new THREE.SphereGeometry(2.1, 10, 6, 0, 2 * PI, 0, PI * 0.5), 0.4, 2.6, 0, 0, 0, 1, 0.75, 1), 0x8d9c6c, 0.1]);
-  for (let k = 0; k < 18; k++) { const a = (k / 18) * 2 * PI, l = 1.6 + r() * 1.2; saule.push([geo(new THREE.ConeGeometry(0.22, l, 4), 0.4 + Math.cos(a) * 1.85, 2.7 - l / 2, Math.sin(a) * 1.85, PI, 0), k % 2 ? 0x95a372 : 0x8a9968, 0.1]); }
-  ESSENCES = { chene: fusion(chene), peup: fusion(peup), saule: fusion(saule) };
+  const r = rng32(7), V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const ecorceTex = texture((g, w, h) => { g.fillStyle = '#5d4b3b'; g.fillRect(0, 0, w, h); for (let i = 0; i < 160; i++) { g.strokeStyle = `rgba(${Math.random() < 0.5 ? '30,22,15' : '140,120,95'},${0.2 + Math.random() * 0.4})`; g.lineWidth = 1 + Math.random() * 2; const x = Math.random() * w; g.beginPath(); g.moveTo(x, 0); g.bezierCurveTo(x + 6, h / 3, x - 6, h * 2 / 3, x + (Math.random() - 0.5) * 8, h); g.stroke(); } }, 128, 256);
+  const bois = new THREE.MeshLambertMaterial({ map: ecorceTex });
+  const feuilles = (sorte) => { const m = new THREE.MeshLambertMaterial({ map: texFeuilles(sorte), alphaTest: 0.42, side: THREE.DoubleSide }); if ('alphaToCoverage' in m) m.alphaToCoverage = true; return m; };
+  // chêne : tronc, cinq maîtresses branches qui se divisent, une touffe au bout de chaque rameau
+  const cb = [], cf = [], cc = V(0, 5, 0);
+  cb.push(branche(V(0, -0.3, 0), V(0.15, 2.8, 0.05), 0.42, 0.3));
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * 2 * PI + r() * 0.5, o = V(0.1, 2.5 + r() * 0.5, 0), m = o.clone().add(V(Math.cos(a) * 1.7, 1.5 + r() * 0.6, Math.sin(a) * 1.7));
+    cb.push(branche(o, m, 0.2, 0.12));
+    for (let j = 0; j < 2; j++) { const b2 = a + (j ? 0.6 : -0.6), e = m.clone().add(V(Math.cos(b2) * 1.2, 0.9 + r() * 0.6, Math.sin(b2) * 1.2)); cb.push(branche(m, e, 0.11, 0.05)); cf.push(...carte(e, 2.6 + r() * 0.8, cc, r)); }
+    cf.push(...carte(m.clone().add(V(0, 0.4, 0)), 2.4, cc, r));
+  }
+  cf.push(...carte(V(0, 6.2, 0), 2.8, cc, r), ...carte(V(0.5, 5.4, -0.6), 2.6, cc, r));
+  // peuplier d'Italie : tronc droit, rameaux serrés, colonne de touffes étroites
+  const pb = [branche(V(0, -0.3, 0), V(0, 8.5, 0), 0.26, 0.08)], pf = [], pc = V(0, 5, 0);
+  for (let k = 0; k < 9; k++) { const y = 2.4 + k * 0.75, a = r() * 6, e = V(Math.cos(a) * 0.5, y + 0.6, Math.sin(a) * 0.5); pb.push(branche(V(0, y, 0), e, 0.06, 0.03)); pf.push(...carte(e, 1.5 - k * 0.06, pc, r, 1.5)); }
+  // saule : tronc penché, couronne arrondie, rideau de rameaux tombants
+  const sb = [branche(V(0, -0.3, 0), V(0.5, 2.4, 0), 0.4, 0.28)], sf = [], scc = V(0.5, 3.2, 0);
+  for (let k = 0; k < 7; k++) { const a = (k / 7) * 2 * PI, e = V(0.5 + Math.cos(a) * 1.6, 3.4 + r() * 0.6, Math.sin(a) * 1.6); sb.push(branche(V(0.5, 2.3, 0), e, 0.14, 0.06)); sf.push(...carte(e, 2.2, scc, r)); }
+  for (let k = 0; k < 14; k++) { const a = (k / 14) * 2 * PI + r() * 0.2, g = new THREE.PlaneGeometry(1.8, 3.2); g.translate(0, -1.4, 0); g.rotateY(-a + PI / 2); g.translate(0.5 + Math.cos(a) * 2.1, 3.9, Math.sin(a) * 2.1);
+    const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, Math.cos(a), 0.35, Math.sin(a)); sf.push(g); }
+  ESSENCES = {
+    chene: { bois: fusionner(cb), feuilles: fusionner(cf), mb: bois, mf: feuilles('chene') },
+    peup: { bois: fusionner(pb), feuilles: fusionner(pf), mb: bois, mf: feuilles('peup') },
+    saule: { bois: fusionner(sb), feuilles: fusionner(sf), mb: bois, mf: feuilles('saule') },
+  };
   return ESSENCES;
 }
+function arbreSeul(es) { const g = new THREE.Group(); g.add(new THREE.Mesh(es.bois, es.mb), new THREE.Mesh(es.feuilles, es.mf)); return g; }
 function construireDecor() {
   const r = rng32(1789), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), c = new THREE.Color(), e = new THREE.Euler();
   const E = essences(), vc = new THREE.MeshLambertMaterial({ vertexColors: true });
   const inst = (geo, materiau, n) => { const m = new THREE.InstancedMesh(geo, materiau, n); m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3); m.count = 0; scene.add(m); return m; };
-  const roseau = fusion([[geo(new THREE.ConeGeometry(0.05, 1.6, 3), 0, 0.8), 0x8d9460], [geo(new THREE.ConeGeometry(0.05, 1.3, 3), 0.12, 0.65, 0.05, 0, -0.15), 0x96a065], [geo(new THREE.ConeGeometry(0.05, 1.1, 3), -0.1, 0.55, -0.06, 0, 0.2), 0x848c58], [geo(new THREE.CylinderGeometry(0.06, 0.04, 0.3, 4), 0, 1.65), 0x6b5038]]);
-  const herbe = fusion(Array.from({ length: 7 }, (_, k) => [geo(new THREE.ConeGeometry(0.06, 0.6 + (k % 3) * 0.2, 3), Math.cos(k) * 0.18, 0.3, Math.sin(k) * 0.18, Math.sin(k) * 0.3, Math.cos(k) * 0.3), k % 2 ? 0x7d8f52 : 0x6f8248]));
-  const caillou = new THREE.DodecahedronGeometry(0.35, 0);
-  const T = { chene: inst(E.chene, vc, 1700), peup: inst(E.peup, vc, 1000), saule: inst(E.saule, vc, 700), roseau: inst(roseau, vc, 5000), herbe: inst(herbe, vc, 5000), caillou: inst(caillou, mat(0x9b9282), 900) };
-  const pose = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
+  const paire = (es, n) => ({ bois: inst(es.bois, es.mb, n), feuilles: inst(es.feuilles, es.mf, n) });
+  const roseau = fusionVC([[geo(new THREE.CylinderGeometry(0.02, 0.04, 1.6, 5), 0, 0.8), 0x8d9460], [geo(new THREE.CylinderGeometry(0.02, 0.04, 1.3, 5), 0.12, 0.65, 0.05, 0, -0.15), 0x96a065], [geo(new THREE.CylinderGeometry(0.02, 0.04, 1.1, 5), -0.1, 0.55, -0.06, 0, 0.2), 0x848c58], [geo(new THREE.CylinderGeometry(0.06, 0.05, 0.32, 6), 0, 1.7), 0x6b5038], [geo(new THREE.PlaneGeometry(0.08, 0.9), 0.05, 0.6, 0, 0, -0.35), 0x7d8752]]);
+  const herbe = fusionVC(Array.from({ length: 11 }, (_, k) => [geo(new THREE.PlaneGeometry(0.05, 0.55 + (k % 4) * 0.12), Math.cos(k * 2.3) * 0.16, 0.28, Math.sin(k * 2.3) * 0.16, Math.sin(k) * 0.35, Math.cos(k) * 0.35), k % 3 ? 0x7d8f52 : 0x6a7d45]));
+  const mHerbe = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const caillou = new THREE.DodecahedronGeometry(0.35, 1);
+  const T = { chene: paire(E.chene, 1050), peup: paire(E.peup, 600), saule: paire(E.saule, 420), roseau: inst(roseau, mHerbe, 5000), herbe: inst(herbe, mHerbe, 6000), caillou: inst(caillou, mat(0x9b9282), 900) };
+  const pose1 = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
+  const pose = (m, pos, s3, rot, coul) => { if (m.bois) { const k = coul ? coul.clone() : null; pose1(m.bois, pos, s3, rot); pose1(m.feuilles, pos, s3, rot, k); } else pose1(m, pos, s3, rot, coul); };
   const libre = (s, lat) => !(decor.zones || []).some((z) => Math.abs(z.s - s) < z.r && Math.sign(z.lat) === Math.sign(lat) && Math.abs(lat - z.lat) < 22);
   const surSol = (f, s, lat, enfonce = 0.05) => f.p.clone().addScaledVector(f.d, lat).setY(hauteurSol(s, lat) - enfonce);
-  const teinte = (v) => c.setRGB(1 + v, 1 + v * 0.6, 1 + v * 0.3);
+  const teinte = (v) => c.setRGB(1 + v, 1 + v * 0.7, 1 + v * 0.4);
   for (let s = -50; s < LONGUEUR + 160; s += 2.2) {
     const f = cadre(s);
     for (const cote of [-1, 1]) {
-      // roseaux, touffes d'herbe et galets posés sur la grève
       for (let k = 0; k < 3; k++) if (r() < 0.55) { const lat = cote * (9.9 + r() * 1.8); sc.set(1, 0.7 + r() * 0.8, 1); pose(T.roseau, surSol(f, s, lat), sc, r() * 6, teinte((r() - 0.5) * 0.2)); }
-      for (let k = 0; k < 3; k++) if (r() < 0.6) { const lat = cote * (11.5 + r() * 20); sc.setScalar(0.8 + r() * 0.8); pose(T.herbe, surSol(f, s, lat), sc, r() * 6, teinte((r() - 0.5) * 0.2)); }
+      for (let k = 0; k < 4; k++) if (r() < 0.6) { const lat = cote * (11.5 + r() * 20); sc.setScalar(0.8 + r() * 0.8); pose(T.herbe, surSol(f, s, lat), sc, r() * 6, teinte((r() - 0.5) * 0.2)); }
       if (r() < 0.25) { const lat = cote * (9.3 + r() * 1.4); sc.setScalar(0.6 + r() * 1.2); pose(T.caillou, surSol(f, s, lat, 0.12), sc, r() * 6); }
-      // saules au ras de la rive, peupliers et chênes plus loin
       if (r() < 0.32 && libre(s, cote * 13)) { const lat = cote * (12.4 + r() * 3); sc.setScalar(0.8 + r() * 0.45); pose(T.saule, surSol(f, s, lat, 0.2), sc, r() * 6, teinte((r() - 0.5) * 0.18)); }
       for (let k = 0; k < 2; k++) {
         if (r() < 0.35) continue;
@@ -395,7 +503,15 @@ function construireDecor() {
       }
     }
   }
-  for (const k in T) { T[k].instanceMatrix.needsUpdate = true; T[k].instanceColor.needsUpdate = true; }
+  scene.traverse((o) => { if (o.isInstancedMesh) { o.instanceMatrix.needsUpdate = true; o.instanceColor.needsUpdate = true; } });
+  // les petites plantes ne sont pas rendues dans le reflet (calque 1) : la passe miroir reste légère
+  for (const k of ['roseau', 'herbe', 'caillou']) T[k].layers.set(1);
+  camera.layers.enable(1);
+}
+function fusionVC(morceaux) {   // petites plantes : géométries + couleur par sommet
+  const g = fusionner(morceaux.map(([g0]) => g0)), col = [], c = new THREE.Color();
+  for (const [g0, couleur] of morceaux) { const n = (g0.index ? g0.index.count : g0.attributes.position.count); c.setHex(couleur); for (let i = 0; i < n; i++) col.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return g;
 }
 // ---- bâtiments du Val de Loire : tuffeau, ardoise, lucarnes
 let M = null;
@@ -478,23 +594,28 @@ function pont(p, e) {
 function banc(p) {   // grève de sable plate, couverte de sternes et de touffes
   const g = new THREE.Group(), l = p.couloirs, x0 = COULOIRS[l[0]] - 1.4, x1 = COULOIRS[l[l.length - 1]] + 1.4, sh = new THREE.Shape();
   const w = x1 - x0, L = LONGS.banc;
-  for (let k = 0; k <= 24; k++) { const a = (k / 24) * 2 * PI, rr = 1 + 0.08 * Math.sin(a * 5 + l[0]); sh.lineTo((x0 + x1) / 2 + Math.cos(a) * (w / 2 - 0.9) * rr, Math.sin(a) * (L - 0.9) * rr); }
-  // le banc part du fond du lit (-2,4) : talus en pente, plus de sable « posé » sur l'eau
-  const g3 = new THREE.ExtrudeGeometry(sh, { depth: 2.6, bevelEnabled: true, bevelThickness: 1.0, bevelSize: 1.2, bevelSegments: 3 }); g3.rotateX(-PI / 2); g3.translate(0, BANC_HAUT - 3.6, 0);
-  g.add(new THREE.Mesh(uvMonde(g3, 0.4), matTex(TEX.sable, 1)));
-  const mouille = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 4, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 })); mouille.rotation.x = PI / 2; mouille.scale.set(w / 2 - 0.9, L - 0.9, 1); mouille.position.x = (x0 + x1) / 2; g.add(mouille); p.ecumeBord = mouille;
+  // dune lisse : ellipsoïde allongé dont le sommet est arasé en plateau, talus en pente douce jusqu'au fond
+  const hw = w / 2 + 0.2, hl = L + 0.2, c0 = BANC_HAUT - 3.6, dune = new THREE.SphereGeometry(1, 48, 24), q = dune.attributes.position;
+  for (let i = 0; i < q.count; i++) { const x = q.getX(i), y = q.getY(i), z = q.getZ(i), ond = 1 + 0.06 * Math.sin(Math.atan2(z, x) * 5 + l[0]);
+    q.setXYZ(i, (x0 + x1) / 2 + x * hw * ond, Math.min(c0 + y * 5, BANC_HAUT + Math.sin(x * 9 + z * 7) * 0.04), z * hl * ond); }
+  dune.computeVertexNormals();
+  const tx = TEX.sable.clone(); tx.needsUpdate = true; tx.repeat.set(3, 3);
+  g.add(new THREE.Mesh(dune, new THREE.MeshLambertMaterial({ map: tx })));
+  const mouille = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 4, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })); mouille.rotation.x = PI / 2; mouille.position.x = (x0 + x1) / 2; g.add(mouille);
+  p.ecumeBord = mouille; p.dune = { hw, hl, c0 };
   const r = rng32(Math.round(p.couloirs[0] * 31 + L * 7));
-  for (let k = 0; k < 4 + l.length * 3; k++) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.8, 4), mat(0x8a9256)); t.position.set(lerp(x0 + 0.6, x1 - 0.6, r()), BANC_HAUT + 0.25, (r() - 0.5) * L * 1.4); g.add(t); }
+  if (!banc.touffe) { banc.touffe = fusionVC(Array.from({ length: 14 }, (_, k) => [geo(new THREE.PlaneGeometry(0.06, 0.5 + (k % 4) * 0.15), Math.cos(k * 2.3) * 0.22, 0.28, Math.sin(k * 2.3) * 0.22, Math.sin(k) * 0.4, Math.cos(k) * 0.4), k % 3 ? 0x8a9256 : 0x9aa062])); banc.mt = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); }
+  for (let k = 0; k < 6 + l.length * 4; k++) { const t = new THREE.Mesh(banc.touffe, banc.mt); t.position.set(lerp(x0 + 0.6, x1 - 0.6, r()), BANC_HAUT - 0.05, (r() - 0.5) * (L - 1) * 1.6); t.scale.setScalar(0.8 + r() * 0.8); t.rotation.y = r() * 6; g.add(t); }
   for (let k = 0; k < 2; k++) { const bois = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.2, 5), M.bois); bois.rotation.z = PI / 2; bois.rotation.y = r() * 3; bois.position.set(lerp(x0, x1, r()), BANC_HAUT + 0.05, (r() - 0.5) * L); g.add(bois); }
   return g;
 }
 function ile(p) {   // île boisée : on ne la franchit jamais, il faut passer à côté
   const g = banc({ couloirs: p.couloirs }), l = p.couloirs, x0 = COULOIRS[l[0]], x1 = COULOIRS[l[l.length - 1]];
-  g.children[0].scale.z = LONGS.ile / LONGS.banc;
+  g.children[0].scale.z = LONGS.ile / LONGS.banc; g.children[1].visible = false;   // pas de liseré mobile sur les îles
   const r = rng32(l[0] * 13 + 5);
-  const E = essences(), vc = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const E = essences();
   for (let k = 0; k < 4 + l.length * 3; k++) { const x = lerp(x0 - 0.6, x1 + 0.6, r()), z = (r() - 0.5) * LONGS.banc * 1.3, h = 0.55 + r() * 0.35;
-    const a = new THREE.Mesh(r() < 0.5 ? E.saule : E.chene, vc); a.scale.setScalar(h); a.position.set(x, BANC_HAUT - 0.1, z); a.rotation.y = r() * 6; g.add(a); }
+    const a = arbreSeul(r() < 0.5 ? E.saule : E.chene); a.scale.setScalar(h); a.position.set(x, BANC_HAUT - 0.1, z); a.rotation.y = r() * 6; g.add(a); }
   return g;
 }
 function duit(p) {   // digue de pierres et de fascines, perpendiculaire au courant, depuis la rive
@@ -546,7 +667,7 @@ function embacle() {   // arbre mort couché en travers du courant : souche et r
   const souche = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.42, 0.4, 8), mat(0x4b3a2c)); souche.rotation.z = PI / 2; souche.position.x = -1.5; g.add(souche);
   for (let k = 0; k < 7; k++) { const a = (k / 7) * 2 * PI, ra = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.1, 1.1, 4), boisM); ra.position.set(-1.75, Math.sin(a) * 0.45, Math.cos(a) * 0.45); ra.rotation.set(Math.cos(a) * 0.9, 0, PI / 2 + Math.sin(a) * 0.9); g.add(ra); }
   for (let k = 0; k < 4; k++) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.08, 1.4, 4), boisM); br.position.set(0.6 + k * 0.3, 0.35, (k % 2 ? 1 : -1) * 0.4); br.rotation.set((k % 2 ? 1 : -1) * 0.8, 0, -0.5); g.add(br);
-    const f = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 0), mat(0x7b8a55)); f.position.set(0.9 + k * 0.3, 0.75, (k % 2 ? 1 : -1) * 0.9); g.add(f); }
+    const f = new THREE.Mesh(fusionner(carte(new THREE.Vector3(0.9 + k * 0.3, 0.75, (k % 2 ? 1 : -1) * 0.9), 1.1, new THREE.Vector3(1, 0, 0), Math.random)), essences().chene.mf); g.add(f); }
   return g;
 }
 function obstacle(e) {
@@ -629,6 +750,7 @@ function preparer() {
 }
 function redim() {
   const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
+  const k = Math.min(devicePixelRatio || 1, 2) * 0.4; reflet.setSize(Math.round(w * k), Math.round(h * k));
   camera.aspect = w / h; camera.fov = w < h ? 70 : 54; camera.updateProjectionMatrix();
 }
 function demarrer() {
@@ -769,9 +891,7 @@ function pas(dt) {
 function rendre(dt, h) {
   const f = cadre(s);
   eauMesh.position.y = wy;
-  const a = eauGeo.attributes.position.array, nc = 15, ic = Math.floor((s + S0) / PAS);
-  for (let i = Math.max(0, ic - 20) * nc, i1 = Math.min(a.length / 3, (ic + 130) * nc); i < i1; i++) { const x = eauBase[i * 3], z = eauBase[i * 3 + 2]; a[i * 3 + 1] = Math.sin(x * 0.7 + h * 1.6) * 0.06 + Math.sin(z * 0.5 - h * 1.3) * 0.07; }
-  eauGeo.attributes.position.needsUpdate = true;
+  eauMesh.material.uniforms.uTemps.value = h; eauMesh.material.uniforms.uRive.value = rive(wy);
   const pos = f.p.clone().addScaledVector(f.d, bx).setY(wy + Math.sin(h * 2.6) * 0.04);
   bateau.position.copy(pos);
   bateau.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.d, UP, f.t.clone().negate()));
@@ -789,8 +909,7 @@ function rendre(dt, h) {
     const d = e.s - s; if (d < -30 || d > 200) continue;
     for (const p of e.parts) {
       if (p.ecumeBord) {   // liseré d'écume là où l'eau touche le talus du banc
-        const u = p.ecumeBord.userData; if (!u.sx) { u.sx = p.ecumeBord.scale.x; u.sy = p.ecumeBord.scale.y; }
-        const ex = clamp((BANC_HAUT - wy) / 1.0, 0, 1) * 1.2 + 0.08; p.ecumeBord.scale.set(u.sx + ex, u.sy + ex, 1);
+        const k = Math.sqrt(Math.max(0, 1 - Math.pow((wy - p.dune.c0) / 5, 2))) + 0.015; p.ecumeBord.scale.set(p.dune.hw * k, p.dune.hl * k, 1);
         p.ecumeBord.position.y = wy + 0.04; p.ecumeBord.visible = wy < BANC_HAUT + 0.1;
       }
       if (p.type === 'duit') { p.mousse.position.y = wy + 0.04; p.mousse.material.opacity = wy - DUIT_HAUT < 1.4 ? 0.5 : 0.18; }
@@ -817,7 +936,21 @@ function rendre(dt, h) {
   decor.dome.position.copy(camera.position); decor.nuages.position.copy(camera.position); decor.nuages.position.y = 0;
   const sdir = new THREE.Vector3(-0.45, 0.3, -1).normalize(); decor.soleil.position.copy(camera.position).addScaledVector(sdir, 420); decor.soleil.lookAt(camera.position);
   decor.sun.position.copy(pos).add(new THREE.Vector3(-60, 70, -90)); decor.sun.target.position.copy(pos);
+  rendreReflet();
   renderer.render(scene, camera);
+}
+// ligne de rive : où le profil du terrain croise la surface de l'eau
+function rive(y) { for (let j = 8; j < PROFIL.length - 1; j++) { const [a, ya] = PROFIL[j], [b, yb] = PROFIL[j + 1]; if (y >= ya && y <= yb) return lerp(a, b, (y - ya) / (yb - ya)); } return 12; }
+// reflets : on rend la scène vue depuis le symétrique de la caméra sous la surface, coupée au ras de l'eau
+const planEau = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), biais = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+function rendreReflet() {
+  camReflet.copy(camera); camReflet.layers.set(0); camReflet.position.y = 2 * wy - camera.position.y;
+  const v = camVise.clone(); v.y = 2 * wy - v.y; camReflet.up.set(0, 1, 0); camReflet.lookAt(v); camReflet.updateMatrixWorld();
+  eauMesh.material.uniforms.uMatReflet.value.copy(biais).multiply(camReflet.projectionMatrix).multiply(camReflet.matrixWorldInverse);
+  planEau.constant = -(wy - 0.05);
+  eauMesh.visible = false; sillage.visible = false; renderer.clippingPlanes = [planEau];
+  renderer.setRenderTarget(reflet); renderer.render(scene, camReflet); renderer.setRenderTarget(null);
+  renderer.clippingPlanes = []; eauMesh.visible = true; sillage.visible = true;
 }
 
 // ---- commandes : glisser (tactile ou souris) et flèches
