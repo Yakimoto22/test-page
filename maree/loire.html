@@ -152,7 +152,14 @@ const PAS = 2;
 let PTS, TAN, DROITE;   // échantillons du fleuve tous les PAS unités
 function construireTrace() {
   const pj = brut.map(versJeu), ech = LONGUEUR / pj[pj.length - 1][0];
-  const v = pj.map(([a, b]) => new THREE.Vector3(b * ech, 0, -a * ech));
+  // rééchantillonne le tracé tous les 200 m et lisse les écarts latéraux :
+  // les angles du tracé simplifié deviennent des méandres doux (plus de coudes serrés)
+  const dense = [];
+  for (let i = 1; i < pj.length; i++) { const [a0, b0] = pj[i - 1], [a1, b1] = pj[i], n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, b1 - b0) / 0.2)); for (let k = 0; k < n; k++) dense.push([lerp(a0, a1, k / n), lerp(b0, b1, k / n)]); }
+  dense.push(pj[pj.length - 1]);
+  let lb = dense.map((q) => q[1]);
+  for (let passe = 0; passe < 6; passe++) lb = lb.map((_, i) => { let t = 0; for (let k = -10; k <= 10; k++) t += lb[clamp(i + k, 0, lb.length - 1)]; return t / 21; });
+  const v = dense.map(([a], i) => new THREE.Vector3(lb[i] * ech, 0, -a * ech));
   const d0 = v[1].clone().sub(v[0]).normalize(), d1 = v[v.length - 1].clone().sub(v[v.length - 2]).normalize();
   v.unshift(v[0].clone().addScaledVector(d0, -60)); v.push(v[v.length - 1].clone().addScaledVector(d1, 160));
   const courbe = new THREE.CatmullRomCurve3(v, false, 'centripetal');
@@ -161,6 +168,18 @@ function construireTrace() {
   PTS = pts.slice(Math.max(0, i0 - 30));
   TAN = PTS.map((p, i) => PTS[Math.min(i + 1, PTS.length - 1)].clone().sub(PTS[Math.max(i - 1, 0)]).setY(0).normalize());
   DROITE = TAN.map((t) => new THREE.Vector3(-t.z, 0, t.x));
+  // rayon de courbure de chaque côté (le plus petit sur ±50 unités) : sert à replier les prairies
+  // à l'intérieur des méandres sans qu'elles passent par-dessus le fleuve
+  const n = PTS.length, k = 5, brutG = new Array(n).fill(1e5), brutD = new Array(n).fill(1e5);
+  for (let i = k; i < n - k; i++) { const ang = Math.acos(clamp(TAN[i - k].dot(TAN[i + k]), -1, 1)), R = (2 * k * PAS) / Math.max(ang, 1e-5); (TAN[i + k].dot(DROITE[i - k]) > 0 ? brutD : brutG)[i] = R; }
+  const fen = (t) => t.map((_, i) => { let m = 1e5; for (let j = Math.max(0, i - 25); j <= Math.min(n - 1, i + 25); j++) m = Math.min(m, t[j]); return m; });
+  RAYON_G = fen(brutG); RAYON_D = fen(brutD);
+}
+let RAYON_G = [], RAYON_D = [];
+function latEff(i, lat) {   // au-delà de la berge, l'intérieur d'un méandre se resserre vers son centre sans jamais le dépasser
+  const a = Math.abs(lat); if (a <= 14) return lat;
+  const R = (lat > 0 ? RAYON_D : RAYON_G)[clamp(i, 0, PTS.length - 1)]; if (!(R < 5e4)) return lat;
+  const r = Math.max(3, 0.85 * (R - 14)); return Math.sign(lat) * (14 + r * (1 - Math.exp(-(a - 14) / r)));
 }
 const S0 = 60;
 function cadre(s) {
@@ -280,13 +299,14 @@ function uvMonde(geo, k) {   // UV calculées d'après la position (projection s
 function placer(obj, s, lat, y, rot = 0) {
   const f = cadre(s), m = new THREE.Matrix4().makeBasis(f.d, UP, f.t.clone().negate());
   obj.quaternion.setFromRotationMatrix(m); if (rot) obj.rotateY(rot);
-  obj.position.copy(f.p).addScaledVector(f.d, lat).setY(y); return obj;
+  obj.position.copy(f.p).addScaledVector(f.d, latEff(Math.round((s + S0) / PAS), lat)).setY(y); return obj;
 }
-function ruban(colonnes, couleurs, bruit) {
+function ruban(colonnes, couleurs, bruit, plier) {
   const n = PTS.length, m = colonnes.length, pos = new Float32Array(n * m * 3), col = new Float32Array(n * m * 3), uv = new Float32Array(n * m * 2), idx = [], c = new THREE.Color();
   for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
     const [lat, y] = colonnes[j], k = (i * m + j) * 3, p = PTS[i], d = DROITE[i], b = bruit ? bruit(i, j) : 0;
-    pos[k] = p.x + d.x * lat; pos[k + 1] = y + b; pos[k + 2] = p.z + d.z * lat;
+    const le = plier ? latEff(i, lat) : lat;
+    pos[k] = p.x + d.x * le; pos[k + 1] = y + b; pos[k + 2] = p.z + d.z * le;
     c.setHex(couleurs[j]); c.offsetHSL(0, 0, (hash(i * 7.1 + j) - 0.5) * 0.05); col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
     uv[(i * m + j) * 2] = lat; uv[(i * m + j) * 2 + 1] = i * PAS - S0;
   }
@@ -330,7 +350,7 @@ function construireScene() {
   const detail = texture((g, w, h) => { g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 9000; i++) { const v = 150 + Math.random() * 105; g.fillStyle = `rgb(${v},${v},${v})`; const x = Math.random() * w, y = Math.random() * h; g.fillRect(x, y, 1 + Math.random() * 1.5, 2 + Math.random() * 4); } }, 256, 256);
   detail.repeat.set(0.3, 0.3);
-  scene.add(new THREE.Mesh(ruban(PROFIL, couleurs, bruitSol), new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })));
+  scene.add(new THREE.Mesh(ruban(PROFIL, couleurs, bruitSol, true), new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })));
   // eau : une seule nappe qui monte et descend ; teinte plus claire au milieu (le courant)
   const cols = []; for (let j = 0; j <= 30; j++) cols.push([-13 + j * (26 / 30), 0]);
   eauGeo = ruban(cols, cols.map(() => 0xffffff));
@@ -485,7 +505,7 @@ function construireDecor() {
   const pose1 = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
   const pose = (m, pos, s3, rot, coul) => { if (m.bois) { const k = coul ? coul.clone() : null; pose1(m.bois, pos, s3, rot); pose1(m.feuilles, pos, s3, rot, k); } else pose1(m, pos, s3, rot, coul); };
   const libre = (s, lat) => !(decor.zones || []).some((z) => Math.abs(z.s - s) < z.r && Math.sign(z.lat) === Math.sign(lat) && Math.abs(lat - z.lat) < 22);
-  const surSol = (f, s, lat, enfonce = 0.05) => f.p.clone().addScaledVector(f.d, lat).setY(hauteurSol(s, lat) - enfonce);
+  const surSol = (f, s, lat, enfonce = 0.05) => f.p.clone().addScaledVector(f.d, latEff(Math.round((s + S0) / PAS), lat)).setY(hauteurSol(s, lat) - enfonce);
   const teinte = (v) => c.setRGB(1 + v, 1 + v * 0.7, 1 + v * 0.4);
   for (let s = -50; s < LONGUEUR + 160; s += 2.2) {
     const f = cadre(s);
