@@ -1,0 +1,1532 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#2b2142">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!--WRAP-END-->
+<title>Midi</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;800&family=Fredoka:wght@400;600&display=swap">
+<style>
+/* Mise en page : une scène plein écran (canvas) avec des écrans superposés en HTML. Look unique, pas de thème sombre. */
+:root {
+  --nuit: #2b2142;      /* cape d'Igor, panneaux */
+  --nuit-2: #3d2f5c;
+  --or: #ffc94a;        /* soleil */
+  --or-fonce: #e09a1e;
+  --os: #f4eee2;        /* texte clair */
+  --brume: #b9aed3;     /* texte secondaire */
+  --sang: #c4314b;
+  --f-titre: "Grenze Gotisch", "Luminari", Georgia, serif;
+  --f-texte: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--nuit); }
+body {
+  color: var(--os); font-family: var(--f-texte); font-size: 16px;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+#app { position: relative; height: 100%; overflow: hidden; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* ---- HUD ---- */
+#hud {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px;
+  padding-top: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+#hud > * { pointer-events: auto; }
+.rond {
+  width: 44px; height: 44px; border-radius: 50%; border: 0; flex: none;
+  background: rgba(43, 33, 66, .72); color: var(--os); font: 600 20px/1 var(--f-texte);
+  display: grid; place-items: center; cursor: pointer;
+}
+.rond:focus-visible, .btn:focus-visible, .case:focus-visible { outline: 3px solid var(--or); outline-offset: 2px; }
+#hud-titre { flex: 1; min-width: 0; text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+#hud-titre b { display: block; font: 800 22px/1.1 var(--f-titre); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud-titre span { font-size: 13px; font-variant-numeric: tabular-nums; opacity: .9; }
+
+#hint {
+  position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  font-size: 16px; line-height: 1.35; color: var(--os); text-wrap: balance;
+}
+#hint .go { display: block; margin-top: 10px; color: var(--or); font-weight: 600; animation: pouls 1.4s ease-in-out infinite; }
+@keyframes pouls { 50% { opacity: .45; } }
+
+/* ---- écrans ---- */
+.ecran {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px; text-align: center;
+  padding-block: 24px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(30, 22, 48, .55);
+}
+.ecran.clair { background: linear-gradient(to bottom, rgba(30,22,48,0) 0%, rgba(30,22,48,.75) 70%); justify-content: flex-end; padding-block: 40px; }
+.panneau {
+  background: var(--nuit); border-radius: 22px; padding: 26px 22px; width: min(100%, 360px);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  box-shadow: 0 10px 0 rgba(0,0,0,.25);
+}
+h1, h2 { margin: 0; font-family: var(--f-titre); font-weight: 800; color: var(--or); text-wrap: balance; }
+h1 { font-size: clamp(84px, 26vw, 140px); line-height: .85; text-shadow: 0 6px 0 var(--nuit); }
+h2 { font-size: 40px; line-height: 1; }
+.sous { margin: 0; color: var(--os); font-size: 17px; max-width: 30ch; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.petit { margin: 0; color: var(--brume); font-size: 14px; }
+.btn {
+  border: 0; border-radius: 999px; cursor: pointer; font: 600 20px/1 var(--f-texte);
+  padding: 16px 30px; min-width: 200px; background: var(--or); color: var(--nuit);
+  box-shadow: 0 5px 0 var(--or-fonce);
+}
+.btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--or-fonce); }
+.btn.second { background: var(--nuit-2); color: var(--os); box-shadow: 0 5px 0 #1d1630; font-size: 17px; padding: 13px 24px; }
+.btn.enorme { font-size: 24px; padding: 20px 36px; }
+.rangee { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+
+#ecran-niveaux { justify-content: flex-start; overflow-y: auto; background: rgba(30, 22, 48, .82); }
+.tete { display: flex; align-items: center; gap: 12px; width: min(100%, 460px); }
+.tete h2 { flex: 1; font-size: 34px; text-align: left; }
+.tete p { margin: 0; color: var(--brume); font-size: 14px; text-align: right; }
+.grille { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: min(100%, 460px); }
+@media (min-width: 560px) { .grille { grid-template-columns: repeat(4, 1fr); } }
+.case {
+  border: 0; border-radius: 16px; cursor: pointer; padding: 12px 6px 10px;
+  background: var(--nuit-2); color: var(--os); font-family: var(--f-texte);
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0;
+}
+.case .num { font: 800 30px/1 var(--f-titre); color: var(--or); }
+.case .nom { font-size: 12px; line-height: 1.2; color: var(--brume); min-height: 2.4em; display: flex; align-items: center; }
+.case .etoiles { font-size: 15px; letter-spacing: 2px; color: var(--or); }
+.case .etoiles i { font-style: normal; color: #5a4a7c; }
+.case[disabled] { opacity: .4; cursor: default; }
+.case[disabled] .num { color: var(--brume); }
+
+.etoiles-fin { font-size: 46px; letter-spacing: 8px; color: var(--or); line-height: 1; }
+.etoiles-fin i { font-style: normal; color: #4b3d6b; }
+.criteres { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; color: var(--brume); text-align: left; }
+.criteres li.ok { color: var(--os); }
+.criteres li::before { content: "☆ "; color: #5a4a7c; }
+.criteres li.ok::before { content: "★ "; color: var(--or); }
+
+.score { margin: 0; font: 800 76px/1 var(--f-titre); color: var(--os); font-variant-numeric: tabular-nums; text-shadow: 0 4px 0 var(--nuit); }
+.record { margin: 0; color: var(--or); font-weight: 600; font-size: 17px; }
+
+#banniere {
+  position: absolute; left: 0; right: 0; top: 25%; text-align: center; pointer-events: none;
+  animation: banniere 2.8s ease-in-out forwards; text-shadow: 0 2px 10px rgba(10,6,20,.7), 0 0 2px rgba(10,6,20,.8);
+}
+#banniere > * { width: fit-content; margin-inline: auto; }
+#banniere b { background: rgba(30,22,48,.55); border-radius: 14px; padding: 4px 18px 8px; }
+#banniere small { display: block; font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--os); opacity: .85; }
+#banniere b { display: block; font: 800 clamp(28px, 9vw, 44px)/1.05 var(--f-titre); color: var(--or); max-width: 92vw; text-wrap: balance; }
+@keyframes banniere { 0% { opacity: 0; transform: translateY(8px); } 15%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+
+/* Série parfaite : compteur central qui grossit et change de couleur par paliers */
+#serie {
+  position: absolute; left: 50%; top: 64px; transform: translateX(-50%); pointer-events: none;
+  display: grid; justify-items: center; gap: 2px; min-width: 120px;
+  background: rgba(30,22,48,.62); border-radius: 18px; padding: 6px 16px 8px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; transition: box-shadow .3s, background .3s;
+  --ton: var(--os);
+}
+#serie .lbl { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--brume); }
+#serie b { font: 800 34px/1 var(--f-titre); color: var(--ton); transition: color .3s; }
+#serie .jauge { width: 100%; height: 5px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+#serie .jauge i { display: block; height: 100%; width: 0; background: var(--ton); border-radius: 3px; transition: width .25s ease-out, background .3s; }
+#serie .info { font-size: 11px; color: var(--brume); }
+#serie.t1 { --ton: #ffc94a; }
+#serie.t2 { --ton: #ff8a3d; box-shadow: 0 0 18px rgba(255,138,61,.45); }
+#serie.t3 { --ton: #ff4d6d; box-shadow: 0 0 24px rgba(255,77,109,.55); }
+#serie.t4 { --ton: #c9a0ff; box-shadow: 0 0 30px rgba(201,160,255,.7); animation: lueur 1.2s ease-in-out infinite; }
+#serie.zero b { color: var(--brume); }
+#serie.pop b { animation: pop .28s ease-out; }
+@keyframes pop { 40% { transform: scale(1.35); } }
+@keyframes lueur { 50% { box-shadow: 0 0 44px rgba(201,160,255,.95); } }
+#serie-perdue {
+  position: absolute; left: 50%; top: 150px; transform: translateX(-50%); pointer-events: none;
+  font: 800 22px/1 var(--f-titre); color: #ff8fa3; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+  animation: perdue 1.4s ease-out forwards;
+}
+@keyframes perdue { 0% { opacity: 1; transform: translateX(-50%); } 10%, 30% { transform: translateX(-46%); } 20%, 40% { transform: translateX(-54%); } 100% { opacity: 0; transform: translate(-50%, 18px); } }
+#flash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 30%, rgba(255,214,120,.55), rgba(255,214,120,0) 70%); animation: flash .7s ease-out forwards; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) { #hint .go, #banniere, #serie.pop b, #serie.t4, #serie-perdue, #flash { animation: none; } }
+</style>
+<!--WRAP-HEAD-END-->
+</head>
+<body>
+<!--WRAP-BODY-START-->
+<div id="app">
+  <canvas id="cv" aria-label="Scène du jeu : touche à gauche ou à droite pour déplacer le soleil"></canvas>
+
+  <div id="hud" hidden>
+    <button class="rond" id="b-pause" aria-label="Pause">II</button>
+    <div id="hud-titre"><b id="hud-nom">Le vieux chêne</b><span id="hud-heure">1-1 · 15:00</span></div>
+    <button class="rond" id="b-recommencer" aria-label="Recommencer">↻</button>
+  </div>
+  <div id="hint" hidden></div>
+  <div id="banniere" hidden><small id="banniere-label">Biome</small><b id="banniere-nom">La forêt</b></div>
+  <div id="serie" hidden>
+    <span class="lbl">Série</span><b id="serie-n">0</b>
+    <span class="jauge"><i id="serie-jauge"></i></span>
+    <span class="info" id="serie-info">prochain palier : 5</span>
+  </div>
+  <div id="serie-perdue" hidden></div>
+  <div id="flash" hidden></div>
+
+  <section class="ecran clair" id="ecran-titre">
+    <h1>Midi</h1>
+    <p class="sous">Igor doit rentrer dans son cercueil. Tu ne peux pas le diriger. Mais tu peux déplacer le soleil.</p>
+    <button class="btn enorme" id="b-jouer">Monde 1 · La forêt</button>
+    <button class="btn second" id="b-infini">Mode infini</button>
+    <p class="petit" id="record-titre">Record infini : aucun pour l’instant</p>
+  </section>
+
+  <section class="ecran" id="ecran-niveaux" hidden>
+    <div class="tete">
+      <button class="rond" id="b-retour-titre" aria-label="Retour">←</button>
+      <h2>La forêt</h2>
+      <p id="total-etoiles">0 / 36 ★</p>
+    </div>
+    <div class="grille" id="grille"></div>
+  </section>
+
+  <section class="ecran" id="ecran-victoire" hidden>
+    <div class="panneau">
+      <h2>Bonne nuit, Igor</h2>
+      <div class="etoiles-fin" id="v-etoiles">★★★</div>
+      <ul class="criteres" id="v-criteres"></ul>
+      <div class="rangee">
+        <button class="btn" id="b-suivant">Suivant</button>
+      </div>
+      <div class="rangee">
+        <button class="btn second" id="b-rejouer">Rejouer</button>
+        <button class="btn second" id="b-niveaux-v">Niveaux</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="ecran clair" id="ecran-defaite" hidden>
+    <h2>Aïe.</h2>
+    <p class="sous" id="d-texte">Igor a pris un coup de soleil.</p>
+    <button class="btn enorme" id="b-reessayer">Réessayer</button>
+    <button class="btn second" id="b-niveaux-d">Niveaux</button>
+  </section>
+
+  <section class="ecran clair" id="ecran-infini" hidden>
+    <h2>Aïe.</h2>
+    <p class="score" id="i-distance">0 m</p>
+    <p class="sous" id="i-detail">en 0:00</p>
+    <p class="record" id="i-record"></p>
+    <button class="btn enorme" id="b-infini-encore">Rejouer</button>
+    <button class="btn second" id="b-infini-menu">Menu</button>
+  </section>
+
+  <section class="ecran" id="ecran-pause" hidden>
+    <div class="panneau">
+      <h2>Pause</h2>
+      <button class="btn" id="b-reprendre">Reprendre</button>
+      <button class="btn second" id="b-recommencer-p">Recommencer</button>
+      <button class="btn second" id="b-son">Son : oui</button>
+      <button class="btn second" id="b-niveaux-p">Niveaux</button>
+    </div>
+  </section>
+</div>
+
+<script>
+/*CORE-START*/
+// Règles du jeu : partagées par le jeu et par le script qui vérifie que chaque niveau est faisable.
+const PI = Math.PI;
+const A_MIN = 0.2 * PI, A_MAX = 0.8 * PI;  // position du soleil sur son arc (0 = horizon gauche)
+// Le soleil a 5 positions : bas à gauche, haut à gauche, Midi, haut à droite, bas à droite.
+const SUN_POS = [0.2, 0.35, 0.5, 0.65, 0.8].map((f) => f * PI);
+const SUN_STEP_T = 4 / 30;  // temps pour passer d'une position à la voisine (≈ 0,13 s)
+const SUN_SPEED = (SUN_POS[1] - SUN_POS[0]) / SUN_STEP_T;
+function nearestPos(ang) {
+  let best = 0;
+  SUN_POS.forEach((p, i) => { if (Math.abs(p - ang) < Math.abs(SUN_POS[best] - ang)) best = i; });
+  return best;
+}
+const WALK = 1.4;        // vitesse d'Igor, en mètres par seconde
+const HALF_W = 0.35;     // demi-largeur d'Igor
+const BURN = 50;         // jauge perdue par seconde en plein soleil
+const HEAL = 16;         // jauge regagnée par seconde à l'ombre
+
+function light(a) {
+  const elev = Math.min(a, PI - a);
+  const dir = a < PI / 2 ? 1 : -1;            // soleil à gauche → ombres vers la droite
+  const k = Math.min(1 / Math.tan(Math.max(elev, 0.05)), 12);
+  return { dir, k, elev };
+}
+
+function rect(x0, x1, y0, y1) { return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]; }
+function ellipse(cx, cy, rx, ry, n = 20) {
+  const p = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * 2 * PI;
+    p.push([cx + rx * Math.cos(t), Math.max(0, cy + ry * Math.sin(t))]);
+  }
+  return p;
+}
+
+// Chaque objet est une liste de formes. Il projette UNE seule ombre continue sur le sol.
+const MAKERS = {
+  chene(o) {
+    const h = o.h || 5, w = o.w || 1;
+    return [
+      { kind: 'tronc', pts: rect(o.x - 0.2, o.x + 0.2, 0, 0.55 * h) },
+      { kind: 'feuilles', pts: ellipse(o.x, 0.68 * h, 0.34 * h * w, 0.3 * h) },
+    ];
+  },
+  arbuste(o) {
+    const h = o.h || 2.6;
+    return [
+      { kind: 'tronc', pts: rect(o.x - 0.12, o.x + 0.12, 0, 0.5 * h) },
+      { kind: 'feuilles-clair', pts: ellipse(o.x, 0.66 * h, 0.36 * h, 0.34 * h, 16) },
+    ];
+  },
+  pin(o) {
+    const h = o.h || 4.5;
+    return [
+      { kind: 'tronc', pts: rect(o.x - 0.15, o.x + 0.15, 0, 0.3 * h) },
+      { kind: 'pin', pts: [[o.x - 0.27 * h, 0.2 * h], [o.x + 0.27 * h, 0.2 * h], [o.x, h]] },
+    ];
+  },
+  bouleau(o) {
+    const h = o.h || 6;
+    return [
+      { kind: 'bouleau', pts: rect(o.x - 0.12, o.x + 0.12, 0, 0.9 * h) },
+      { kind: 'feuilles-clair', pts: ellipse(o.x, 0.84 * h, 0.16 * h, 0.14 * h, 16) },
+    ];
+  },
+  mort(o) {
+    const h = o.h || 4;
+    return [
+      { kind: 'tronc', pts: rect(o.x - 0.14, o.x + 0.14, 0, 0.6 * h) },
+      { kind: 'branches', pts: [[o.x - 0.3 * h, 0.5 * h], [o.x + 0.3 * h, 0.55 * h], [o.x + 0.1 * h, h], [o.x - 0.12 * h, 0.95 * h]] },
+    ];
+  },
+  rocher(o) {
+    const w = o.w || 2.5, h = o.h || 1.5, x = o.x;
+    return [{ kind: 'rocher', pts: [[x - w / 2, 0], [x + w / 2, 0], [x + w * 0.44, h * 0.62], [x + w * 0.18, h], [x - w * 0.22, h * 0.96], [x - w * 0.46, h * 0.58]] }];
+  },
+  buisson(o) {
+    const w = o.w || 2, h = o.h || 1.2;
+    return [{ kind: 'buisson', pts: ellipse(o.x, h * 0.45, w / 2, h * 0.55, 18) }];
+  },
+  tombe(o) {
+    const w = o.w || 0.9, h = o.h || 1.4, x = o.x, r = w / 2, pts = [[x - r, 0], [x + r, 0]];
+    for (let i = 0; i <= 8; i++) { const t = (i / 8) * PI; pts.push([x + r * Math.cos(t), h - r + r * Math.sin(t)]); }
+    return [{ kind: 'tombe', pts }];
+  },
+  souche(o) {
+    const w = o.w || 1.1, h = o.h || 0.9;
+    return [{ kind: 'tronc', pts: [[o.x - w / 2 - 0.15, 0], [o.x + w / 2 + 0.15, 0], [o.x + w / 2, h], [o.x - w / 2, h]] }];
+  },
+};
+
+const LEVELS = [
+  { nom: 'Le vieux chêne', L: 7, a0: 0.7 * PI,
+    hint: 'Touche à gauche ou à droite de l’écran (ou ← →) : le soleil change de position, et l’ombre aussi. Garde Igor dedans.',
+    objs: [{ t: 'chene', x: 4, h: 6, w: 1.2 }] },
+  { nom: 'De l’autre côté', L: 10, a0: 0.75 * PI,
+    hint: 'Quand Igor passe sous l’arbre, fais passer le soleil de l’autre côté.',
+    objs: [{ t: 'chene', x: 5.1, h: 5.7, w: 1.1 }] },
+  { nom: 'Les petits arbres', L: 11, a0: 0.75 * PI,
+    hint: 'Petit arbre, petite ombre. Sous l’arbre, Igor est toujours à l’abri.',
+    objs: [{ t: 'arbuste', x: 4, h: 2.5 }, { t: 'arbuste', x: 7.1, h: 2.9 }] },
+  { nom: 'Deux arbustes', L: 12, a0: 0.75 * PI,
+    hint: 'Soleil bas : ombre longue. Soleil haut : ombre courte.',
+    objs: [{ t: 'arbuste', x: 3.8, h: 2.5 }, { t: 'arbuste', x: 8.2, h: 2.6 }] },
+  { nom: 'Le bosquet', L: 13, a0: 0.75 * PI,
+    hint: 'Passe d’un arbuste à l’autre sans t’arrêter.',
+    objs: [{ t: 'arbuste', x: 4.2, h: 3.2 }, { t: 'arbuste', x: 6.1, h: 2.6 }, { t: 'arbuste', x: 8.8, h: 2.7 }] },
+  { nom: 'Le pin', L: 15, a0: 0.75 * PI,
+    hint: 'Anticipe : change le soleil de côté avant qu’il soit trop tard.',
+    objs: [{ t: 'arbuste', x: 3.7, h: 2.3 }, { t: 'arbuste', x: 6.7, h: 2.4 }, { t: 'pin', x: 11, h: 3.9 }] },
+  { nom: 'La lisière', L: 16, a0: 0.75 * PI,
+    hint: 'Les trous sont plus grands : il faut des ombres longues.',
+    objs: [{ t: 'arbuste', x: 3.8, h: 2.2 }, { t: 'arbuste', x: 7.5, h: 2.3 }, { t: 'arbuste', x: 12.2, h: 2.2 }] },
+  { nom: 'Volte-face', L: 16, a0: 0.35 * PI,
+    hint: 'Le soleil commence à gauche cette fois. Vite !',
+    objs: [{ t: 'chene', x: 5.1, h: 6.3, w: 0.9 }, { t: 'chene', x: 8.3, h: 5.9, w: 1.1 }, { t: 'rocher', x: 11.6, w: 3, h: 1.9 }] },
+  { nom: 'La haie', L: 18, a0: 0.75 * PI,
+    hint: 'Une ombre après l’autre. Ne traîne pas.',
+    objs: [{ t: 'arbuste', x: 3.8, h: 2.2 }, { t: 'arbuste', x: 7.8, h: 2.5 }, { t: 'buisson', x: 10.6, w: 2.1, h: 1.2 }, { t: 'arbuste', x: 14.4, h: 2.2 }] },
+  { nom: 'Les souches', L: 20, a0: 0.75 * PI,
+    hint: 'Une souche, c’est bas : son ombre reste courte.',
+    objs: [{ t: 'pin', x: 4.2, h: 4.1 }, { t: 'souche', x: 8.7, h: 1.1 }, { t: 'arbuste', x: 12.1, h: 2.6 }, { t: 'arbuste', x: 15.5, h: 2.8 }] },
+  { nom: 'Le sentier', L: 24, a0: 0.75 * PI,
+    hint: 'Un long chemin. Anticipe.',
+    objs: [{ t: 'pin', x: 4.1, h: 4.6 }, { t: 'rocher', x: 8.6, w: 1.9, h: 1.2 }, { t: 'rocher', x: 11.5, w: 1.6, h: 1.8 }, { t: 'arbuste', x: 16.4, h: 2.2 }, { t: 'arbuste', x: 20.2, h: 2.9 }] },
+  { nom: 'Le cimetière', L: 28, biome: 'cimetiere', a0: 0.75 * PI,
+    hint: 'Le cercueil d’Igor est au bout. Courage.',
+    objs: [{ t: 'rocher', x: 4.8, w: 2.8, h: 1.4 }, { t: 'chene', x: 6.7, h: 5.2, w: 1.1 }, { t: 'tombe', x: 10.6, h: 1.3 }, { t: 'rocher', x: 14.6, w: 1.6, h: 1.8 },
+           { t: 'rocher', x: 16.6, w: 3.2, h: 1.9 }, { t: 'tombe', x: 19.8, h: 1.6 }, { t: 'arbuste', x: 24.2, h: 2.7 }] },
+];
+
+function makeItem(o) {
+  const parts = MAKERS[o.t](o), pts = parts.flatMap((p) => p.pts);
+  let left = Infinity, right = -Infinity;
+  for (const q of pts) { left = Math.min(left, q[0]); right = Math.max(right, q[0]); }
+  pts.right = right;
+  return { o, parts, pts, left, right };
+}
+
+function buildLevel(def) {
+  const items = def.objs.map(makeItem);
+  return { ...def, items, casters: items.map((it) => it.pts) };
+}
+
+// Ombre d'un objet : [début, fin]. Le sol juste sous l'objet (sous le feuillage) est toujours à l'ombre,
+// et l'ombre portée s'étend à partir de là selon la position du soleil.
+function shadowOf(pts, dir, k) {
+  let lo = Infinity, hi = -Infinity;
+  for (const q of pts) {
+    const s = q[0] + dir * q[1] * k;
+    lo = Math.min(lo, s, q[0]); hi = Math.max(hi, s, q[0]);
+  }
+  return [lo, hi];
+}
+
+// Fraction d'Igor (0 → 1) qui est au soleil.
+function exposure(lv, a, vx) {
+  const { dir, k } = light(a);
+  const lo0 = vx - HALF_W, hi0 = vx + HALF_W, ints = [];
+  for (const c of lv.casters) {
+    const [lo, hi] = shadowOf(c, dir, k);
+    if (hi > lo0 && lo < hi0) ints.push([Math.max(lo, lo0), Math.min(hi, hi0)]);
+  }
+  ints.sort((u, v) => u[0] - v[0]);
+  let cov = 0, cur = -Infinity;
+  for (const [a0, b0] of ints) { const s = Math.max(a0, cur); if (b0 > s) { cov += b0 - s; cur = b0; } }
+  let e = 1 - cov / (2 * HALF_W);
+  // Flaques : quand le soleil est bas, l'eau renvoie la lumière sur Igor, même à l'ombre.
+  if (lv.puddles && light(a).elev < REFLECT_ELEV) {
+    for (const p of lv.puddles) {
+      const o = Math.min(hi0, p.x1) - Math.max(lo0, p.x0);
+      if (o > 0) e = Math.max(e, o / (2 * HALF_W));
+    }
+  }
+  return e < 0.01 ? 0 : e;
+}
+const REFLECT_ELEV = 0.25 * PI;  // sous 45° de hauteur (positions tout à gauche / tout à droite), l'eau reflète
+
+function healthStep(h, e, dt, heal = HEAL) {
+  return Math.max(0, Math.min(100, h + (e > 0 ? -BURN * e : heal) * dt));
+}
+
+// ---- Mode infini : biomes successifs, vitesse qui augmente, régénération réduite et bulles de vie.
+const INF = {
+  LEN: 700,          // échelle de difficulté (m)
+  ACCEL: 0.004,      // Igor gagne 0,004 m/s par mètre parcouru : ≈ 3,9 m/s vers 4 min 15
+  VMAX: 7,           // vitesse maximale d'Igor (m/s)
+  TOL0: 0.0, TOL1: 0.3, // secondes de plein soleil tolérées dans un trou (bon côté), qui augmentent sans limite
+  SWAP: 1.1,         // marge sur la largeur d'objet nécessaire pour changer le soleil de côté
+  WRONG: 1.4,        // secondes de plein soleil au minimum si le soleil est du mauvais côté
+  HEAL: 0.8,         // à l'ombre, la vie remonte à 80 % de la vitesse du monde 1
+  BUBBLE: 100 / 3,   // vie rendue par une bulle
+  BUBBLE_GAP: [80, 120],
+};
+
+const BIOMES = [
+  { id: 'foret', nom: 'La forêt', len: 160, big: ['chene', 'bouleau', 'chene'], small: ['arbuste', 'buisson', 'souche'], bigBias: 0.1 },
+  { id: 'prairie', nom: 'La prairie', len: 170, big: ['chene', 'arbuste'], small: ['buisson', 'rocher', 'souche', 'buisson'], bigBias: -0.1 },
+  { id: 'montagne', nom: 'La montagne', len: 190, big: ['pin', 'pin', 'pin'], small: ['rocher', 'rocher', 'souche'], bigBias: 0 },
+  { id: 'cimetiere', nom: 'Le cimetière', len: 220, big: ['mort', 'mort', 'chene'], small: ['tombe', 'tombe', 'souche'], bigBias: -0.05 },
+];
+const BIOME_CYCLE = BIOMES.reduce((n, b) => n + b.len, 0);
+function biomeAt(x) {
+  let u = ((Math.max(0, x) % BIOME_CYCLE) + BIOME_CYCLE) % BIOME_CYCLE, i = 0;
+  while (u >= BIOMES[i].len) { u -= BIOMES[i].len; i++; }
+  return { i, b: BIOMES[i], u, cycle: Math.floor(Math.max(0, x) / BIOME_CYCLE) };
+}
+
+const GEN = {
+  chene: (r) => ({ t: 'chene', h: 4 + 1.6 * r(), w: 0.9 + 0.3 * r() }),
+  pin: (r) => ({ t: 'pin', h: 3.8 + 1.4 * r() }),
+  bouleau: (r) => ({ t: 'bouleau', h: 4.5 + 1.5 * r() }),
+  mort: (r) => ({ t: 'mort', h: 3.4 + 1.4 * r() }),
+  arbuste: (r) => ({ t: 'arbuste', h: 2.2 + r() }),
+  buisson: (r) => ({ t: 'buisson', w: 1.4 + r(), h: 0.9 + 0.5 * r() }),
+  rocher: (r) => ({ t: 'rocher', w: 1.6 + 1.4 * r(), h: 1.1 + 0.8 * r() }),
+  souche: (r) => ({ t: 'souche', h: 0.8 + 0.4 * r() }),
+  tombe: (r) => ({ t: 'tombe', h: 1.2 + 0.5 * r() }),
+};
+
+function infWalk(x) { return Math.min(INF.VMAX, WALK + INF.ACCEL * Math.max(0, x)); }
+function infSun() { return SUN_SPEED; }
+
+function rng32(seed) {
+  return function () {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeEndless(seed) {
+  const first = makeItem({ t: 'chene', x: 0.6, h: 5, w: 1 });  // Igor part à l'abri d'un grand chêne
+  return { endless: true, nom: 'Infini', L: Infinity, a0: 0.75 * PI, items: [first], casters: [first.pts], rand: rng32(seed),
+    lastRight: first.right, reach: [0, 1].map((i) => shadowOf(first.pts, 1, light(SUN_POS[i]).k)[1]),
+    prevWidth: first.right - first.left, lastPos: 4, holes: [], puddles: [], bubbles: [], nextBubble: INF.BUBBLE_GAP[0] };
+}
+
+// Chaque trou tire au hasard ce qu'il exige ; on choisit ensuite l'objet suivant et l'écart qui rendent
+// ce choix possible, et seulement lui. Types de trou :
+//   L0 / R4 : ombre longue de l'objet d'avant (soleil tout à gauche) / de l'objet suivant (tout à droite) ;
+//   L1 / R3 : flaque dans le trou : soleil haut à gauche / haut à droite (en bas, l'eau brûle) ;
+//   relais  : trop long pour une ombre : soleil à gauche puis à droite au milieu du trou ;
+//   pause   : couvert des deux côtés.
+// Le mauvais côté laisse toujours Igor au moins INF.WRONG secondes au soleil.
+const HOLE_POS = { L0: [0, 0], L1: [1, 1], R3: [3, 3], R4: [4, 4], relais: [0, 4] };
+function infAddOne(lv) {
+  const r = lv.rand, Dx = lv.lastRight / INF.LEN, D = Math.min(1, Dx), v = infWalk(lv.lastRight);
+  const tol = (INF.TOL0 + INF.TOL1 * Dx) * v, wrong = INF.WRONG * v, kk = SUN_POS.map((p) => light(p).k);
+  const travel = (n) => v * n * SUN_STEP_T * INF.SWAP;          // largeur d'objet pour bouger le soleil de n cases dessous
+  const bio = biomeAt(lv.lastRight).b;
+  const ext0 = lv.reach[0] - lv.lastRight, ext1 = lv.reach[1] - lv.lastRight;  // portée des ombres déjà posées (soleil à gauche)
+  // ordre des types essayés : tirage pondéré, les flaques et relais deviennent plus fréquents en avançant
+  const w = { L0: 1, R4: 1, L1: Dx > 0.06 ? 0.8 + 0.6 * D : 0, R3: Dx > 0.06 ? 0.8 + 0.6 * D : 0, relais: Dx > 0.04 ? 0.35 + 0.2 * D : 0, pause: 0.2 - 0.15 * D };
+  const order = [];
+  while (Object.values(w).some((x) => x > 0)) {
+    let t = r() * Object.values(w).reduce((u, x) => u + x, 0);
+    for (const k in w) { t -= w[k]; if (t <= 0 && w[k] > 0) { order.push(k); w[k] = 0; break; } }
+  }
+  let pick = null, fallback = null;
+  for (const kind of order) {
+    const need = kind === 'pause' ? 0 : Math.abs(lv.lastPos - HOLE_POS[kind][0]);
+    if (lv.prevWidth < travel(need)) continue;
+    for (let i = 0; i < 14 && !pick; i++) {
+      const list = r() < 0.5 ? bio.big : bio.small;
+      const o = GEN[list[Math.floor(r() * list.length)]](r);
+      o.x = 0;
+      const it = makeItem(o), wd = it.right - it.left;
+      const e3 = it.left - shadowOf(it.pts, -1, kk[3])[0], e4 = it.left - shadowOf(it.pts, -1, kk[4])[0];
+      let gmin, gmax;
+      if (kind === 'L0') { gmin = e4 + wrong; gmax = ext0 + tol; }
+      else if (kind === 'L1') { gmin = e3 + wrong / 2; gmax = ext1 + tol; }  // en bas, l'eau brûle déjà : marge réduite
+      else if (kind === 'R4') { gmin = ext0 + wrong; gmax = e4 + tol; }
+      else if (kind === 'R3') { gmin = ext1 + wrong / 2; gmax = e3 + tol; }
+      else if (kind === 'relais') { gmin = Math.max(ext0, e4) + wrong; gmax = ext0 + e4 - travel(4) + tol; }
+      else { gmin = 0.3; gmax = Math.min(ext0, e4) + tol; }
+      gmin = Math.max(gmin, 0.4);
+      const endPos = kind === 'pause' ? lv.lastPos : HOLE_POS[kind][1];
+      const nextOk = wd >= travel(2);  // l'objet posé doit laisser bouger le soleil d'au moins 2 cases ensuite
+      const cand = { o, left: it.left, kind, endPos, gap: gmin + (Math.max(gmin, gmax) - gmin) * r() * 0.8, slack: gmax - gmin };
+      if (gmax >= gmin && nextOk) pick = cand;
+      else if (!fallback || cand.slack > fallback.slack) fallback = { ...cand, gap: gmin };
+    }
+    if (pick) break;
+  }
+  // Rien ne convient (fin de partie, très rapide) : le trou reste au minimum du mauvais côté ;
+  // Igor prend alors un peu de soleil même en jouant parfaitement.
+  if (!pick) pick = fallback;
+  const x0 = lv.lastRight;
+  pick.o.x = x0 + pick.gap - pick.left;
+  const it = makeItem(pick.o);
+  lv.items.push(it); lv.casters.push(it.pts);
+  if (pick.kind === 'L1' || pick.kind === 'R3') lv.puddles.push({ x0: x0 + 0.1, x1: it.left - 0.1 });
+  lv.holes.push(pick.kind);
+  lv.lastRight = it.right;
+  lv.prevWidth = it.right - it.left;
+  lv.lastPos = pick.endPos;
+  lv.reach = [0, 1].map((i) => Math.max(lv.reach[i], shadowOf(it.pts, 1, kk[i])[1]));
+}
+
+function infExtend(lv, upTo) {
+  while (lv.lastRight < upTo) infAddOne(lv);
+  while (lv.nextBubble < upTo) {
+    lv.bubbles.push({ x: lv.nextBubble, taken: false });
+    const [g0, g1] = INF.BUBBLE_GAP;
+    lv.nextBubble += g0 + (g1 - g0) * lv.rand();
+  }
+}
+function infPrune(lv, behind) {
+  lv.items = lv.items.filter((it) => it.right > behind);
+  lv.casters = lv.items.map((it) => it.pts);
+  lv.bubbles = lv.bubbles.filter((b) => b.x > behind);
+  lv.puddles = lv.puddles.filter((p) => p.x1 > behind);
+}
+
+function starsFor(final, minH) { return 1 + (final >= 50 ? 1 : 0) + (minH >= 70 ? 1 : 0); }
+/*CORE-END*/
+
+// ---------------------------------------------------------------- jeu
+const $ = (id) => document.getElementById(id);
+const app = $('app'), cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, S = 40, groundY = 0, DPR = 1;
+
+function resize() {
+  const r = app.getBoundingClientRect();
+  W = r.width; H = r.height; DPR = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S = Math.max(16, Math.min(W / 7.5, H / 12.5));
+  groundY = Math.round(H * (W > H ? 0.68 : 0.72));
+  $('hint').style.top = (groundY + 1.0 * S + 0.3 * S + 18) + 'px';
+}
+
+// ---- sauvegarde
+const SAVE_KEY = 'midi.monde1';
+let progress = { stars: LEVELS.map(() => 0) };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && Array.isArray(s.stars)) progress.stars = LEVELS.map((_, i) => s.stars[i] || 0); } catch (e) {}
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch (e) {} }
+const unlocked = (i) => i === 0 || progress.stars[i - 1] > 0;
+
+// ---- son (créé au premier toucher)
+let AC = null, sizzle = null, soundOn = true;
+try { soundOn = localStorage.getItem('midi.son') !== '0'; } catch (e) {}
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (0.6 + 0.4 * Math.random());
+    const src = AC.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = AC.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2800;
+    sizzle = AC.createGain(); sizzle.gain.value = 0;
+    src.connect(f).connect(sizzle).connect(AC.destination); src.start();
+  } catch (e) { AC = null; }
+}
+function tone(freq, t0, dur, type = 'triangle', vol = 0.12, glide = 0) {
+  if (!AC || !soundOn) return;
+  const t = AC.currentTime + t0, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (glide) o.frequency.exponentialRampToValueAtTime(freq * glide, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+const sfx = {
+  win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.3)); },
+  lose() { tone(220, 0, 0.5, 'sine', 0.2, 0.5); tone(140, 0.2, 0.6, 'sine', 0.18, 0.6); },
+  ouf() { tone(520, 0, 0.35, 'sine', 0.06, 0.7); },
+  tic(n) { const k = Math.min(n, 24) % 12, oct = n >= 12 ? 2 : 1; tone(523 * oct * Math.pow(2, [0, 2, 4, 5, 7, 9, 11][k % 7] / 12), 0, 0.12, 'sine', 0.05); },
+  perdue() { tone(330, 0, 0.25, 'triangle', 0.08, 0.6); },
+  pas() { tone(520 + 60 * ti, 0, 0.07, 'triangle', 0.035); },
+  serie() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, i * 0.07, 0.18, 'sine', 0.07)); },
+  bulle() { tone(660, 0, 0.18, 'sine', 0.12, 1.5); tone(990, 0.08, 0.25, 'sine', 0.08, 1.3); },
+  click() { tone(880, 0, 0.06, 'square', 0.03); },
+};
+function setSizzle(v) { if (sizzle && AC) sizzle.gain.setTargetAtTime(soundOn ? v * 0.09 : 0, AC.currentTime, 0.05); }
+function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+
+// ---- état
+let mode = 'titre';        // titre | niveaux | pret | jeu | arrivee | cendres | victoire | defaite | pause
+let cur = 0, lv = buildLevel(LEVELS[0]);
+let ti = 2;  // position visée du soleil (0 à 4)
+let serie = 0, serieMax = 0, burnedSince = 0, recordPasse = false;
+const SERIE_TOL = 15;  // points de vie qu'on peut perdre entre deux obstacles sans casser la série (≈ 0,3 s de soleil)
+let a = PI / 2, target = PI / 2, vx = 0, health = 100, minH = 100, clock = 0, phaseT = 0, burnT = 0;
+let particles = [];
+
+let best = { m: 0, s: 0 }, runT = 0, curBiome = -1, banniereT = null, popT = 0;
+function showBanner(nom, etiquette = 'Biome') {
+  const el = $('banniere'); $('banniere-nom').textContent = nom; $('banniere-label').textContent = etiquette;
+  el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(banniereT); banniereT = setTimeout(() => { el.hidden = true; }, 2900);
+}
+try { const b = JSON.parse(localStorage.getItem('midi.infini')); if (b && b.m > 0) best = b; } catch (e) {}
+const fmtTemps = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+// Paliers de série : chacun rend de la vie et fait monter d'un cran l'affichage.
+const PALIERS = [5, 10, 15, 25, 35, 50, 75, 100, 150, 200, 300];
+const PALIER_VIE = 15;
+function palierSuivant(n) { return PALIERS.find((p) => p > n) || Math.ceil((n + 1) / 100) * 100; }
+function majSerie(pop) {
+  const el = $('serie');
+  el.hidden = !(lv && lv.endless) || mode === 'titre' || mode === 'niveaux';
+  $('serie-n').textContent = serie;
+  const nxt = palierSuivant(serie), prev = [...PALIERS].reverse().find((p) => p <= serie) || 0;
+  $('serie-jauge').style.width = `${Math.round(((serie - prev) / (nxt - prev)) * 100)}%`;
+  $('serie-info').textContent = `palier ${nxt} · record ${Math.max(best.serie || 0, serieMax)}`;
+  el.className = serie === 0 ? 'zero' : serie >= 30 ? 't4' : serie >= 15 ? 't3' : serie >= 5 ? 't2' : 't1';
+  if (pop) { void el.offsetWidth; el.classList.add('pop'); }
+}
+function seriePerdue(n) {
+  const el = $('serie-perdue');
+  el.textContent = `Série perdue : ${n}`;
+  el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(seriePerdue.t); seriePerdue.t = setTimeout(() => { el.hidden = true; }, 1500);
+}
+function flash() {
+  const el = $('flash'); el.hidden = true; void el.offsetWidth; el.hidden = false;
+  clearTimeout(flash.t); flash.t = setTimeout(() => { el.hidden = true; }, 750);
+}
+function recordLabel() {
+  $('record-titre').textContent = best.m > 0
+    ? `Record infini : ${Math.floor(best.m)} m en ${fmtTemps(best.s)} · meilleure série : ${best.serie || 0}`
+    : 'Record infini : aucun pour l’instant';
+}
+
+function show(id, on) { $(id).hidden = !on; }
+function screens(active) {
+  for (const id of ['ecran-titre', 'ecran-niveaux', 'ecran-victoire', 'ecran-defaite', 'ecran-infini', 'ecran-pause']) show(id, id === active);
+}
+
+function loadLevel(i) {
+  if (i < 0) { startEndless(); return; }
+  cur = i; lv = buildLevel(LEVELS[i]);
+  setupRun();
+}
+
+function startEndless() {
+  cur = -1; lv = makeEndless((Math.random() * 1e9) | 0);
+  infExtend(lv, 40);
+  setupRun();
+}
+
+function setupRun() {
+  runT = 0; curBiome = -1; popT = 0; $('banniere').hidden = true;
+  ti = nearestPos(lv.a0); a = target = SUN_POS[ti]; vx = 0;
+  serie = 0; serieMax = 0; burnedSince = 0; recordPasse = !(best.m > 0); majSerie(); health = 100; minH = 100; phaseT = 0; burnT = 0; particles = [];
+  mode = 'pret';
+  majSerie();
+  screens(null); show('hud', true); show('hint', true);
+  $('hud-nom').textContent = lv.endless ? 'Infini' : lv.nom;
+  $('hint').innerHTML = '';
+  const t = document.createElement('span');
+  t.textContent = lv.endless ? 'Pas de cercueil. À l’ombre, la vie remonte lentement ; les bulles rouges en rendent un tiers. Attention aux flaques : avec le soleil bas, l’eau brûle. Igor accélère sans cesse.' : lv.hint;
+  const go = document.createElement('span'); go.className = 'go'; go.textContent = 'Touche l’écran pour réveiller Igor';
+  $('hint').append(t, go);
+  setSizzle(0);
+}
+
+function startWalking() {
+  if (mode !== 'pret') return;
+  mode = 'jeu';
+  const go = $('hint').querySelector('.go'); if (go) go.remove();
+}
+
+function openLevels() {
+  $('serie').hidden = true;
+  mode = 'niveaux'; show('hud', false); show('hint', false); setSizzle(0);
+  lv = buildLevel(LEVELS[0]); vx = 0;
+  const g = $('grille'); g.innerHTML = '';
+  let total = 0;
+  LEVELS.forEach((L, i) => {
+    const b = document.createElement('button'); b.className = 'case'; b.id = 'niv-' + (i + 1);
+    const st = progress.stars[i]; total += st;
+    b.innerHTML = `<span class="num">${i + 1}</span><span class="nom"></span><span class="etoiles">${'★'.repeat(st)}<i>${'★'.repeat(3 - st)}</i></span>`;
+    b.querySelector('.nom').textContent = unlocked(i) ? L.nom : 'Verrouillé';
+    if (!unlocked(i)) b.disabled = true;
+    b.addEventListener('click', () => { initAudio(); sfx.click(); loadLevel(i); });
+    g.append(b);
+  });
+  $('total-etoiles').textContent = `${total} / ${LEVELS.length * 3} ★`;
+  screens('ecran-niveaux');
+}
+
+function finish(win) {
+  setSizzle(0); show('hint', false);
+  if (lv.endless) {
+    const record = vx > best.m, serieRecord = serieMax > (best.serie || 0);
+    if (record || serieRecord) {
+      best = record ? { m: vx, s: runT, serie: Math.max(serieMax, best.serie || 0) } : { ...best, serie: serieMax };
+      try { localStorage.setItem('midi.infini', JSON.stringify(best)); } catch (e) {} }
+    $('i-distance').textContent = `${Math.floor(vx)} m`;
+    $('i-detail').textContent = `en ${fmtTemps(runT)}, à ${infWalk(vx).toFixed(1).replace('.', ',')} m/s`;
+    $('i-detail').textContent += ` · meilleure série : ${serieMax}`;
+    $('i-record').textContent = record ? 'Nouveau record !' : `Record : ${Math.floor(best.m)} m en ${fmtTemps(best.s)}`;
+    if (serieRecord) $('i-record').textContent += ' Nouvelle meilleure série !';
+    $('serie').hidden = true; $('serie-perdue').hidden = true;
+    recordLabel();
+    mode = 'defaite'; screens('ecran-infini');
+    return;
+  }
+  if (win) {
+    const st = starsFor(health, minH);
+    if (st > progress.stars[cur]) { progress.stars[cur] = st; save(); }
+    $('v-etoiles').innerHTML = '★'.repeat(st) + '<i>' + '★'.repeat(3 - st) + '</i>';
+    const crit = [
+      [true, 'Arriver au cercueil'],
+      [health >= 50, `Garder la moitié de la jauge (${Math.round(health)} %)`],
+      [minH >= 70, 'Jauge toujours au-dessus de 70 %'],
+    ];
+    $('v-criteres').innerHTML = '';
+    for (const [ok, txt] of crit) { const li = document.createElement('li'); li.textContent = txt; if (ok) li.className = 'ok'; $('v-criteres').append(li); }
+    const last = cur === LEVELS.length - 1;
+    $('b-suivant').textContent = last ? 'Fin du monde 1' : 'Suivant';
+    mode = 'victoire'; screens('ecran-victoire');
+  } else {
+    const lines = ['Igor a pris un coup de soleil.', 'Il reste un petit tas de cendres. Et un soleil qui sourit.', 'Igor a bronzé. Un peu trop.'];
+    $('d-texte').textContent = lines[Math.floor(Math.random() * lines.length)];
+    mode = 'defaite'; screens('ecran-defaite');
+  }
+}
+
+// ---- boucle
+function update(dt) {
+  clock += dt;
+  if (mode === 'titre' || mode === 'niveaux') {
+    target = PI / 2 + 0.34 * PI * Math.sin(clock * 0.35);
+  } else if (mode === 'pause' || mode === 'victoire' || mode === 'defaite') {
+    return;
+  } else {
+    target = SUN_POS[ti];
+  }
+  const step = SUN_SPEED * dt, d = target - a;
+  a += Math.max(-step, Math.min(step, d));
+
+  if (mode === 'jeu') {
+    if (lv.endless) {
+      const x0 = vx;
+      vx += infWalk(vx) * dt; runT += dt;
+      for (const b of lv.bubbles) {
+        if (!b.taken && b.x > x0 && b.x <= vx) {
+          b.taken = true; health = Math.min(100, health + INF.BUBBLE); popT = 1; sfx.bulle(); buzz(15);
+          for (let i = 0; i < 14; i++) particles.push({ x: b.x, y: 1.0, vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.3) * 2, life: 0.8, r: 0.05 + Math.random() * 0.06, rouge: true });
+        }
+      }
+      const bi = biomeAt(vx);
+      if (bi.i !== curBiome) {
+        if (curBiome !== -1) showBanner(bi.b.nom);
+        curBiome = bi.i; $('hud-nom').textContent = 'Infini · ' + bi.b.nom.replace(/^(La |Le |L’)/, '');
+      }
+      infExtend(lv, vx + W / S + 20);
+      if (lv.items.length > 40) infPrune(lv, camX() - 8);
+      if (vx > 12 && !$('hint').hidden) show('hint', false);
+    } else {
+      vx = Math.min(lv.L, vx + WALK * dt);
+    }
+    const e = exposure(lv, a, vx);
+    health = healthStep(health, e, dt, lv.endless ? HEAL * INF.HEAL : HEAL);
+    popT = Math.max(0, popT - dt * 2);
+    minH = Math.min(minH, health);
+    setSizzle(e);
+    if (lv.endless) {
+      // La série casse dès qu'Igor a perdu plus de SERIE_TOL points de vie depuis le dernier obstacle
+      // (une fraction de seconde au soleil en changeant de position ne compte pas).
+      burnedSince += BURN * e * dt;
+      if (burnedSince > SERIE_TOL && serie > 0) {
+        if (serie >= 3) { seriePerdue(serie); sfx.perdue(); }
+        serie = 0; majSerie();
+      }
+      for (const it of lv.items) {
+        if (!it.passe && vx - HALF_W > it.right) {
+          it.passe = true;
+          if (burnedSince <= SERIE_TOL) {
+            serie++; serieMax = Math.max(serieMax, serie); majSerie(true); sfx.tic(serie);
+            if (PALIERS.includes(serie) || (serie > 300 && serie % 100 === 0)) {
+              health = Math.min(100, health + PALIER_VIE); popT = 1;
+              showBanner(`${serie} d’affilée · +${PALIER_VIE} vie`, 'Série parfaite'); sfx.serie(); flash(); buzz([20, 30, 20]);
+              for (let i = 0; i < 24; i++) particles.push({ x: vx, y: 1.2, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2.5, life: 1, r: 0.04 + Math.random() * 0.05, or: true });
+            }
+          }
+          burnedSince = 0;
+        }
+      }
+      if (!lv.puddleVu && lv.puddles.some((p) => p.x0 < vx + W / S * 0.6)) {
+        lv.puddleVu = true; showBanner('L’eau reflète le soleil bas', 'Attention');
+      }
+      if (!recordPasse && vx > best.m) { recordPasse = true; showBanner('Record battu', 'Nouveau record'); sfx.serie(); buzz([30, 40, 30]); }
+    }
+    if (e > 0) {
+      if (burnT === 0) buzz(25);
+      burnT += dt;
+      if (Math.random() < e * dt * 40) particles.push({ x: vx + (Math.random() - 0.5) * 0.6, y: 0.6 + Math.random() * 0.6, vx: (Math.random() - 0.5) * 0.3, vy: 0.9 + Math.random() * 0.6, life: 1, r: 0.12 + Math.random() * 0.12 });
+    } else {
+      if (burnT > 0.4) sfx.ouf();
+      burnT = 0;
+    }
+    if (health <= 0) { mode = 'cendres'; phaseT = 0; setSizzle(0); sfx.lose(); buzz([60, 40, 120]); }
+    else if (!lv.endless && vx >= lv.L) { mode = 'arrivee'; phaseT = 0; setSizzle(0); sfx.win(); }
+  } else if (mode === 'arrivee' || mode === 'cendres') {
+    phaseT += dt;
+    if (phaseT > 1.3) finish(mode === 'arrivee');
+  }
+  for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * 1.1; p.r += dt * 0.25; }
+  particles = particles.filter((p) => p.life > 0);
+
+  const h = 6 + (a / PI) * 12, hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  const heure = Math.abs(a - PI / 2) < 0.02 ? 'Midi pile' : `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  $('hud-heure').textContent = lv.endless
+    ? `${Math.floor(vx)} m · ${fmtTemps(runT)} · ${infWalk(vx).toFixed(1).replace('.', ',')} m/s`
+    : `1-${cur + 1} · ${heure}`;
+}
+
+// ---- dessin
+const lerp = (x, y, t) => x + (y - x) * t;
+function rgb(c) { return c[0] === '#' ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c.match(/\d+/g).slice(0, 3).map(Number); }
+function mix(c1, c2, t, al = 1) {
+  const A = rgb(c1), B = rgb(c2), m = A.map((v, i) => Math.round(lerp(v, B[i], t)));
+  return al < 1 ? `rgba(${m.join(',')},${al})` : `rgb(${m.join(',')})`;
+}
+const alpha = (c, al) => `rgba(${rgb(c).join(',')},${al})`;
+const hash = (n) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+const BAND = () => S * 1.0;                 // profondeur du chemin à l'écran
+const FEET = () => groundY + BAND() * 0.62;  // ligne où marche Igor
+const X = (x, cx) => (x - cx) * S;
+const Y = (y) => groundY - y * S;
+
+function camX() {
+  const view = W / S, lo = -1.6, hi = lv.L + 1.8 - view;
+  if (lv.endless) return Math.max(lo, vx - view * 0.3);
+  if (hi < lo) return (lv.L - view) / 2;
+  return Math.max(lo, Math.min(hi, vx - view * 0.3));
+}
+
+function sunPos(ang = a) {
+  const rx = W * 0.44, ry = Math.max(80, groundY - 160);  // le haut de l'arc reste sous le titre et la série
+  return [W / 2 - rx * Math.cos(ang), groundY - ry * Math.sin(ang)];
+}
+
+// Couleurs par biome : [soleil bas, soleil haut].
+const SKY = { zenith: ['#232f60', '#3a6fb4'], mid: ['#a65a68', '#7fb0dc'], horizon: ['#f4a466', '#d6ecf2'], light: ['#ffb36b', '#fff4d8'] };
+const BIOME_PAL = {
+  foret: { far: ['#7f6f8c', '#7f96b0'], far2: ['#5c5070', '#5e7590'], tree1: ['#4a4658', '#4d6458'], tree2: ['#343440', '#33463a'],
+    meadow: ['#6a6a3a', '#66803f'], dirt: ['#a97f55', '#ad946c'], dirt2: ['#85623f', '#8c7254'], style: 'foret' },
+  prairie: { far: ['#9a8796', '#9fb3c6'], far2: ['#7e6f80', '#80a0ac'], tree1: ['#6b6646', '#6e8650'], tree2: ['#4f4e34', '#506a38'],
+    meadow: ['#a08f45', '#a5ad4f'], dirt: ['#bd965e', '#c2a876'], dirt2: ['#987548', '#a2875c'], style: 'prairie' },
+  montagne: { far: ['#9089aa', '#9eb2cc'], far2: ['#625e7c', '#647894'], tree1: ['#3a4250', '#3a4e4c'], tree2: ['#262e34', '#253834'],
+    meadow: ['#646656', '#66745c'], dirt: ['#968a7c', '#9c9588'], dirt2: ['#716659', '#787064'], style: 'montagne' },
+  cimetiere: { far: ['#5f4e6c', '#6c7290'], far2: ['#45384f', '#4c5068'], tree1: ['#322c3a', '#363a44'], tree2: ['#221e28', '#24262c'],
+    meadow: ['#4c4638', '#555c46'], dirt: ['#8a7663', '#8f8172'], dirt2: ['#675445', '#6e6256'], style: 'cimetiere',
+    zenith: ['#1c1838', '#3a5480'], mid: ['#744868', '#7a8ea8'], horizon: ['#cc8670', '#c4ced4'] },
+};
+
+function paletteOf(id, elevT) {
+  const B = BIOME_PAL[id], P = { style: B.style };
+  for (const k of ['zenith', 'mid', 'horizon', 'light']) { const c = B[k] || SKY[k]; P[k] = mix(c[0], c[1], elevT); }
+  for (const k of ['far', 'far2', 'tree1', 'tree2', 'meadow', 'dirt', 'dirt2']) P[k] = mix(B[k][0], B[k][1], elevT);
+  return P;
+}
+// Palette du moment ; en mode infini, on glisse vers le biome suivant sur les 30 derniers mètres.
+function palette(elevT) {
+  if (!lv.endless) { const P = paletteOf(lv.biome || 'foret', elevT); P.next = null; return P; }
+  const bi = biomeAt(vx), P = paletteOf(bi.b.id, elevT), left = bi.b.len - bi.u;
+  if (left < 30) {
+    const nb = BIOMES[(bi.i + 1) % BIOMES.length], Q = paletteOf(nb.id, elevT), t = 1 - left / 30;
+    for (const k in Q) if (k !== 'style') P[k] = mix(P[k], Q[k], t);
+    P.next = { style: Q.style, t };
+  } else P.next = null;
+  return P;
+}
+
+function drawSky(P) {
+  const g = ctx.createLinearGradient(0, 0, 0, groundY);
+  g.addColorStop(0, P.zenith); g.addColorStop(0.55, P.mid); g.addColorStop(1, P.horizon);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, groundY + 2);
+  const [sx, sy] = sunPos(), R = Math.max(W, H) * 0.75;
+  const rg = ctx.createRadialGradient(sx, sy, 0, sx, sy, R);
+  rg.addColorStop(0, alpha(P.light, 0.45)); rg.addColorStop(0.15, alpha(P.light, 0.12)); rg.addColorStop(1, alpha(P.light, 0));
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, W, groundY + 2);
+}
+
+function drawClouds(cx) {
+  for (let i = 0; i < 7; i++) {
+    const span = W / S + 30;
+    let x = (hash(i) * span - cx * 0.06 + clock * 0.15 * (0.5 + hash(i + 9))) % span;
+    if (x < 0) x += span;
+    const sx = (x - 10) * S, sy = groundY * (0.12 + 0.4 * hash(i + 3)), w = S * (2 + 3 * hash(i + 5));
+    ctx.fillStyle = mix('#ffffff', '#ffd2b0', 0.4, 0.13);
+    for (let j = 0; j < 7; j++) {
+      const u = j / 6 - 0.5;
+      ctx.beginPath(); ctx.ellipse(sx + u * w, sy - (0.25 - u * u) * w * 0.25, w * (0.3 - Math.abs(u) * 0.2), w * (0.09 - Math.abs(u) * 0.05), 0, 0, 2 * PI); ctx.fill();
+    }
+  }
+}
+
+function drawSun(P, elevT) {
+  const [x, y] = sunPos(), r = Math.max(14, S * 0.42);
+  if (mode === 'jeu' || mode === 'pret') {  // les 5 positions possibles, la visée en plus marqué
+    SUN_POS.forEach((p, i) => {
+      const [px, py] = sunPos(p);
+      ctx.fillStyle = i === ti ? 'rgba(255,240,200,.85)' : 'rgba(255,245,225,.32)';
+      ctx.beginPath(); ctx.arc(px, py, i === ti ? 4 : 3, 0, 2 * PI); ctx.fill();
+    });
+  }
+  const bloom = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 5);
+  bloom.addColorStop(0, 'rgba(255,248,225,.75)'); bloom.addColorStop(0.25, alpha(P.light, 0.28)); bloom.addColorStop(1, 'rgba(255,220,160,0)');
+  ctx.fillStyle = bloom; ctx.beginPath(); ctx.arc(x, y, r * 5, 0, 2 * PI); ctx.fill();
+  const disc = ctx.createRadialGradient(x, y, 0, x, y, r);
+  disc.addColorStop(0, '#fffef6'); disc.addColorStop(0.7, mix('#ffd9a0', '#fff6dc', elevT)); disc.addColorStop(1, mix('#ffb56a', '#ffeebd', elevT));
+  ctx.fillStyle = disc; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * PI); ctx.fill();
+}
+
+// Montagnes : dégradé vertical (plus dense en haut, noyé dans la brume en bas), neige en montagne.
+function mountains(par, cx, base, amp, freq, color, haze, snow) {
+  const pts = [];
+  for (let sx = -6; sx <= W + 6; sx += 6) {
+    const w = sx / S + cx * par;
+    const n = 1 - Math.abs(0.5 * Math.sin(w * freq) + 0.3 * Math.sin(w * freq * 2.3 + 1.7) + 0.2 * Math.sin(w * freq * 5.1 + 0.4));
+    pts.push([sx, groundY - (base + amp * n) * S]);
+  }
+  const top = Math.min(...pts.map((p) => p[1]));
+  const g = ctx.createLinearGradient(0, top, 0, groundY);
+  g.addColorStop(0, color); g.addColorStop(1, haze);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-6, groundY);
+  for (const [px, py] of pts) ctx.lineTo(px, py);
+  ctx.lineTo(W + 6, groundY); ctx.closePath(); ctx.fill();
+  if (snow > 0) {  // neige au-dessus d'une ligne irrégulière, accrochée à la montagne : elle défile avec elle
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = `rgba(242,244,252,${0.85 * snow})`;
+    ctx.beginPath(); ctx.moveTo(-6, top - 10);
+    for (let sx = -6; sx <= W + 6; sx += 6) {
+      const w = sx / S + cx * par;
+      ctx.lineTo(sx, groundY - (base + amp * (0.62 + 0.08 * Math.sin(w * 1.7) + 0.05 * Math.sin(w * 4.3))) * S);
+    }
+    ctx.lineTo(W + 6, top - 10); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// Silhouettes d'arbres lointains, selon le biome.
+function silhouette(sx, by, ht, kind, seed) {
+  if (kind === 'pin') {
+    for (let i = 0; i < 3; i++) {
+      const y0 = by - ht * (0.15 + i * 0.26), w = ht * (0.32 - i * 0.08);
+      ctx.beginPath(); ctx.moveTo(sx - w, y0); ctx.lineTo(sx, y0 - ht * 0.42); ctx.lineTo(sx + w, y0); ctx.fill();
+    }
+    ctx.fillRect(sx - ht * 0.03, by - ht * 0.18, ht * 0.06, ht * 0.18);
+  } else if (kind === 'mort') {
+    ctx.lineWidth = Math.max(1, ht * 0.05); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(sx, by); ctx.lineTo(sx, by - ht * 0.7);
+    for (let i = 0; i < 4; i++) { const yy = by - ht * (0.35 + i * 0.12), d = (i % 2 ? 1 : -1) * ht * (0.25 - i * 0.04); ctx.moveTo(sx, yy); ctx.lineTo(sx + d, yy - ht * 0.2); }
+    ctx.stroke();
+  } else if (kind === 'croix') {
+    ctx.fillRect(sx - ht * 0.03, by - ht * 0.4, ht * 0.06, ht * 0.4); ctx.fillRect(sx - ht * 0.12, by - ht * 0.32, ht * 0.24, ht * 0.05);
+  } else {
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1) - 0.5;
+      ctx.beginPath(); ctx.arc(sx + u * ht * 0.45, by - ht * (0.5 + 0.12 * Math.cos(u * 3) + 0.08 * hash(seed + i)), ht * 0.24, 0, 2 * PI); ctx.fill();
+    }
+    ctx.fillRect(sx - ht * 0.03, by - ht * 0.3, ht * 0.06, ht * 0.3);
+  }
+}
+const ROW_KINDS = { foret: ['rond', 'rond', 'pin'], prairie: ['rond'], montagne: ['pin'], cimetiere: ['mort', 'mort', 'croix', 'pin'] };
+function treeRow(par, cx, base, size, color, density, style, sparse) {
+  ctx.fillStyle = color; ctx.strokeStyle = color;
+  const off = cx * par, step = 0.9 / density, kinds = ROW_KINDS[style];
+  for (let w = Math.floor(off / step) * step - 2; w < off + W / S + 2; w += step) {
+    const id = Math.round(w / step), h = hash(id);
+    if (h < sparse) continue;
+    silhouette((w - off) * S, groundY - base * S, size * (0.6 + 0.7 * hash(id + 0.3)) * S, kinds[id % kinds.length], id);
+  }
+}
+
+function drawBackdrop(cx, P) {
+  const st = P.style;
+  mountains(0.05, cx, st === 'montagne' ? 3.6 : 2.8, st === 'montagne' ? 3.2 : 2.0, 0.22, P.far, P.horizon, st === 'montagne' ? 1 : 0);
+  mountains(0.12, cx, 1.6, st === 'montagne' ? 1.8 : 1.2, 0.35, P.far2, mix(P.far2, P.horizon, 0.6), 0);
+  // brume au pied des montagnes
+  const mist = ctx.createLinearGradient(0, groundY - 2.2 * S, 0, groundY);
+  mist.addColorStop(0, alpha(P.horizon, 0)); mist.addColorStop(1, alpha(P.horizon, 0.55));
+  ctx.fillStyle = mist; ctx.fillRect(0, groundY - 2.2 * S, W, 2.2 * S);
+  const sparse = st === 'prairie' ? 0.55 : st === 'cimetiere' ? 0.3 : 0;
+  treeRow(0.28, cx, 0.5, 1.2, mix(P.tree1, P.horizon, 0.35), 1.5, st, sparse);
+  treeRow(0.45, cx, 0.25, 1.8, P.tree2, 0.8, st, sparse);
+  const g = ctx.createLinearGradient(0, groundY - 0.45 * S, 0, groundY);
+  g.addColorStop(0, P.meadow); g.addColorStop(1, mix(P.meadow, '#1c2016', 0.35));
+  ctx.fillStyle = g; ctx.fillRect(0, groundY - 0.45 * S, W, 0.45 * S + 1);
+}
+
+function drawPath(cx, P) {
+  const b = BAND();
+  // herbes du bord arrière du chemin : derrière Igor
+  ctx.strokeStyle = mix(P.meadow, '#2b3320', 0.2); ctx.lineWidth = Math.max(1, S * 0.025);
+  for (let i = Math.floor(cx * 5) - 2; i < (cx + W / S) * 5 + 2; i++) {
+    const h = hash(i + 0.25), px = X(i / 5, cx), len = S * (0.1 + 0.15 * h);
+    ctx.beginPath(); ctx.moveTo(px, groundY + 2); ctx.lineTo(px + len * 0.2, groundY - len); ctx.stroke();
+  }
+  const g = ctx.createLinearGradient(0, groundY, 0, groundY + b);
+  g.addColorStop(0, P.dirt2); g.addColorStop(0.35, P.dirt); g.addColorStop(1, P.dirt2);
+  ctx.fillStyle = g; ctx.fillRect(0, groundY, W, b);
+  ctx.fillStyle = 'rgba(60,40,25,.16)';
+  ctx.fillRect(0, groundY + b * 0.3, W, Math.max(1, b * 0.04)); ctx.fillRect(0, groundY + b * 0.8, W, Math.max(1, b * 0.04));
+  for (let i = Math.floor(cx * 3) - 2; i < (cx + W / S) * 3 + 2; i++) {
+    const h = hash(i), px = X(i / 3 + h * 0.3, cx), py = groundY + b * (0.1 + 0.85 * hash(i + 77));
+    ctx.fillStyle = h > 0.5 ? 'rgba(60,45,35,.3)' : 'rgba(235,215,180,.22)';
+    ctx.beginPath(); ctx.ellipse(px, py, S * (0.03 + 0.05 * h), S * (0.015 + 0.02 * h), 0, 0, 2 * PI); ctx.fill();
+  }
+}
+
+// Flaques : eau qui reflète le ciel ; quand le soleil est bas, reflet éblouissant qui brûle Igor.
+function drawPuddles(cx, P) {
+  if (!lv.puddles) return;
+  const b = BAND(), y = groundY + b * 0.6, glare = light(a).elev < REFLECT_ELEV;
+  for (const p of lv.puddles) {
+    const x0 = X(p.x0, cx), x1 = X(p.x1, cx);
+    if (x1 < -S || x0 > W + S) continue;
+    const mx = (x0 + x1) / 2, rx = (x1 - x0) / 2, ry = b * 0.32;
+    const g = ctx.createLinearGradient(0, y - ry, 0, y + ry);
+    g.addColorStop(0, mix(P.horizon, P.zenith, 0.3)); g.addColorStop(1, mix(P.zenith, '#1a2030', 0.3));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(mx, y, rx, ry, 0, 0, 2 * PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,30,20,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;  // vaguelettes
+    for (let i = 0; i < 3; i++) {
+      const wx = mx + Math.sin(clock * 1.3 + i * 2.1 + p.x0) * rx * 0.4, wy = y + (i - 1) * ry * 0.45;
+      ctx.beginPath(); ctx.ellipse(wx, wy, rx * 0.22, ry * 0.12, 0, PI * 1.1, PI * 1.9); ctx.stroke();
+    }
+    if (glare) {  // reflet dangereux
+      const t = 0.75 + 0.25 * Math.sin(clock * 9 + p.x0);
+      const rg = ctx.createRadialGradient(mx, y, 0, mx, y, rx * 1.1);
+      rg.addColorStop(0, `rgba(255,250,215,${0.85 * t})`); rg.addColorStop(0.5, `rgba(255,220,140,${0.35 * t})`); rg.addColorStop(1, 'rgba(255,220,140,0)');
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(mx, y, rx * 1.1, ry * 1.4, 0, 0, 2 * PI); ctx.fill();
+      const beam = ctx.createLinearGradient(0, y, 0, y - 2 * S);
+      beam.addColorStop(0, `rgba(255,240,190,${0.35 * t})`); beam.addColorStop(1, 'rgba(255,240,190,0)');
+      ctx.fillStyle = beam; ctx.fillRect(x0 + rx * 0.2, y - 2 * S, rx * 1.6, 2 * S);
+    }
+  }
+}
+
+// Ombres portées : douces, translucides, légèrement inclinées dans le sens de la lumière.
+function drawShadows(cx) {
+  const { dir, k } = light(a), b = BAND(), sk = 0.22 * Math.min(k, 3);
+  const zones = [];
+  for (const [lo, hi] of lv.casters.map((c) => shadowOf(c, dir, k)).sort((u, v) => u[0] - v[0])) {
+    const z = zones[zones.length - 1];
+    if (z && lo <= z[1]) z[1] = Math.max(z[1], hi); else zones.push([lo, hi]);
+  }
+  for (const [lo, hi] of zones) {
+    for (const [grow, al] of [[0.22, 0.12], [0.1, 0.16], [0, 0.26]]) {
+      ctx.fillStyle = `rgba(28,22,48,${al})`;
+      ctx.beginPath();
+      ctx.moveTo(X(lo - grow - dir * sk * 0.62, cx), groundY); ctx.lineTo(X(hi + grow - dir * sk * 0.62, cx), groundY);
+      ctx.lineTo(X(hi + grow + dir * sk * 0.38, cx), groundY + b); ctx.lineTo(X(lo - grow + dir * sk * 0.38, cx), groundY + b);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  for (const it of lv.items) {
+    const w = it.right - it.left, mx = (it.left + it.right) / 2;
+    ctx.fillStyle = 'rgba(20,16,30,.28)';
+    ctx.beginPath(); ctx.ellipse(X(mx, cx), groundY + 2, Math.min(w, 2.2) * S * 0.5, S * 0.09, 0, 0, 2 * PI); ctx.fill();
+  }
+}
+
+function polyW(pts, cx) {
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x, cx), Y(y)) : ctx.moveTo(X(x, cx), Y(y))));
+  ctx.closePath();
+}
+
+// Feuillage : une silhouette bosselée faite de touffes, puis un modelé (clair côté soleil, sombre
+// dessous) et une texture de petites feuilles. Tout reste dans l'ellipse qui sert au jeu.
+function canopy(cx, ox, oy, rx, ry, seed, cols, hx, flatBottom) {
+  const r = rng32(seed), tufts = [], m = Math.min(rx, ry);
+  for (let i = 0; i < 15; i++) {
+    const t = (i / 15) * 2 * PI + r() * 0.3;
+    tufts.push([ox + Math.cos(t) * rx * 0.72, oy + Math.sin(t) * ry * 0.7, m * (0.26 + 0.08 * r())]);
+  }
+  for (let i = 0; i < 6; i++) { const t = r() * 2 * PI, d = r() * 0.45; tufts.push([ox + Math.cos(t) * rx * d, oy + Math.sin(t) * ry * d, m * 0.45]); }
+  const shape = () => {
+    ctx.beginPath();
+    for (const [bx, by, br] of tufts) { if (flatBottom && by - br < 0) continue; ctx.moveTo(X(bx, cx) + br * S, Y(by)); ctx.arc(X(bx, cx), Y(by), br * S, 0, 2 * PI); }
+    ctx.ellipse(X(ox, cx), Y(oy), rx * 0.8 * S, ry * 0.78 * S, 0, 0, 2 * PI);
+  };
+  shape(); ctx.fillStyle = cols[1]; ctx.fill();
+  ctx.save(); shape(); ctx.clip();
+  // la lumière vient du soleil : direction (hx, vy), qui tourne en continu quand le soleil bouge
+  const vy = Math.sqrt(Math.max(0, 1 - hx * hx));
+  const g = ctx.createLinearGradient(X(ox + hx * rx, cx), Y(oy + vy * ry), X(ox - hx * rx * 0.6, cx), Y(oy - ry));
+  g.addColorStop(0, alpha(cols[2], 0.75)); g.addColorStop(0.45, alpha(cols[1], 0)); g.addColorStop(1, alpha(cols[0], 0.9));
+  ctx.fillStyle = g; ctx.fillRect(X(ox - rx * 1.2, cx), Y(oy + ry * 1.2), rx * 2.4 * S, ry * 2.4 * S);
+  // petites feuilles : sombres dans la masse, claires sur le dessus éclairé
+  for (let i = 0; i < 140; i++) {
+    const t = r() * 2 * PI, d = Math.sqrt(r()), lx = ox + Math.cos(t) * d * rx, ly = oy + Math.sin(t) * d * ry;
+    // éclairage progressif : chaque feuille s'éclaire ou s'assombrit selon son orientation vers le soleil
+    const d2 = ((lx - ox) / rx) * hx + ((ly - oy) / ry) * vy;
+    const lt = Math.max(0, Math.min(1, (d2 + 0.25) / 0.9));
+    ctx.fillStyle = mix(cols[0], cols[2], lt, 0.32);
+    ctx.beginPath(); ctx.ellipse(X(lx, cx), Y(ly), S * (0.035 + 0.03 * r()), S * 0.022, t, 0, 2 * PI); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function trunk(cx, x, h0, h1, w0, w1, hx, c1, c2) {
+  ctx.fillStyle = c1;
+  ctx.beginPath(); ctx.moveTo(X(x - w0, cx), Y(h0)); ctx.lineTo(X(x + w0, cx), Y(h0)); ctx.lineTo(X(x + w1, cx), Y(h1)); ctx.lineTo(X(x - w1, cx), Y(h1)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = c2;
+  ctx.beginPath(); ctx.moveTo(X(x + hx * w0, cx), Y(h0)); ctx.lineTo(X(x + hx * w0 * 0.2, cx), Y(h0)); ctx.lineTo(X(x + hx * w1 * 0.2, cx), Y(h1)); ctx.lineTo(X(x + hx * w1, cx), Y(h1)); ctx.closePath(); ctx.fill();
+  // racines
+  ctx.fillStyle = c1;
+  ctx.beginPath(); ctx.moveTo(X(x - w0 * 1.8, cx), Y(0)); ctx.quadraticCurveTo(X(x - w0, cx), Y(0.05), X(x - w0 * 0.8, cx), Y(0.35)); ctx.lineTo(X(x + w0 * 0.8, cx), Y(0.35));
+  ctx.quadraticCurveTo(X(x + w0, cx), Y(0.05), X(x + w0 * 1.8, cx), Y(0)); ctx.closePath(); ctx.fill();
+}
+function branch(cx, x0, y0, x1, y1, w, col) {
+  ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, w * S); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(X(x0, cx), Y(y0)); ctx.quadraticCurveTo(X((x0 + x1) / 2, cx), Y((y0 + y1) / 2 + 0.15), X(x1, cx), Y(y1)); ctx.stroke();
+}
+
+const LEAVES = { chene: ['#1c2e1b', '#2f4a2b', '#7d9a52'], clair: ['#34502a', '#4f6d34', '#b2c46c'], arbuste: ['#1f301c', '#344f2c', '#7f9a50'] };
+
+// Arrière-plan des objets : dessiné derrière Igor.
+function drawItemBack(it, cx, hx) {
+  const o = it.o, x = o.x;
+  if (o.t === 'chene') {
+    const h = o.h || 5;
+    trunk(cx, x, 0, 0.6 * h, 0.22, 0.13, hx, '#33241b', '#5a4030');
+    branch(cx, x, 0.42 * h, x - 0.2 * h, 0.62 * h, 0.08, '#33241b');
+    branch(cx, x, 0.48 * h, x + 0.18 * h, 0.66 * h, 0.07, '#33241b');
+  } else if (o.t === 'bouleau') {
+    const h = o.h || 6;
+    trunk(cx, x, 0, 0.88 * h, 0.13, 0.08, hx, '#d6d1c4', '#f2efe6');
+    ctx.fillStyle = '#2b2730';
+    for (let y = 0.45, i = 0; y < 0.8 * h; y += 0.5 + 0.4 * hash(x * 10 + i), i++) {
+      ctx.fillRect(X(x - 0.12 + 0.1 * hash(i + x), cx), Y(y), S * 0.1, Math.max(1.5, S * 0.04));
+    }
+    branch(cx, x, 0.7 * h, x - 0.12 * h, 0.8 * h, 0.04, '#cfc9bb');
+  } else if (o.t === 'pin') {
+    const h = o.h || 4.5;
+    trunk(cx, x, 0, 0.3 * h, 0.12, 0.09, hx, '#3a2a1f', '#5a4030');
+    for (let i = 0; i < 4; i++) {
+      const y0 = 0.2 * h + i * 0.18 * h, y1 = Math.min(h, y0 + 0.36 * h), hw = 0.27 * h * (1 - i * 0.2);
+      // bord dentelé des branches
+      const tier = () => {
+        ctx.beginPath(); ctx.moveTo(X(x, cx), Y(y1));
+        for (let j = 0; j <= 6; j++) { const u = j / 6; ctx.lineTo(X(x + hw * u, cx), Y(lerp(y1, y0, u) - (j % 2 ? 0.08 : 0))); }
+        for (let j = 6; j >= 0; j--) { const u = j / 6; ctx.lineTo(X(x - hw * u, cx), Y(lerp(y1, y0, u) - (j % 2 ? 0.08 : 0))); }
+        ctx.closePath();
+      };
+      tier(); ctx.fillStyle = '#1b3226'; ctx.fill();
+      ctx.save(); tier(); ctx.clip();
+      ctx.fillStyle = `rgba(90,130,90,${0.1 + 0.25 * Math.abs(hx)})`; ctx.fillRect(hx < 0 ? X(x - hw, cx) : X(x, cx), Y(y1), hw * S, (y1 - y0) * S);
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(X(x - hw, cx), Y(y0 + 0.08), 2 * hw * S, 0.12 * S);
+      ctx.restore();
+    }
+  } else if (o.t === 'mort') {
+    const h = o.h || 4;
+    trunk(cx, x, 0, 0.6 * h, 0.14, 0.08, hx, '#2f2a2c', '#4a4244');
+    const r = rng32(Math.round(x * 31));
+    const grow = (x0, y0, ang, len, w, d) => {
+      const x1 = x0 + Math.sin(ang) * len, y1 = y0 + Math.cos(ang) * len;
+      branch(cx, x0, y0, x1, y1, w, '#2f2a2c');
+      if (d > 0) { grow(x1, y1, ang - 0.5 - r() * 0.3, len * 0.65, w * 0.65, d - 1); grow(x1, y1, ang + 0.45 + r() * 0.3, len * 0.6, w * 0.65, d - 1); }
+    };
+    grow(x, 0.55 * h, -0.5, 0.22 * h, 0.07, 2); grow(x, 0.6 * h, 0.4, 0.22 * h, 0.07, 2); grow(x, 0.6 * h, 0, 0.2 * h, 0.06, 2);
+  } else if (o.t === 'arbuste') {
+    const h = o.h || 2.6;
+    trunk(cx, x, 0, 0.5 * h, 0.09, 0.06, hx, '#3a2a1f', '#5a4030');
+    canopy(cx, x, 0.66 * h, 0.34 * h, 0.32 * h, Math.round(x * 97), LEAVES.arbuste, hx);
+  } else if (o.t === 'buisson') {
+    const w = o.w || 2, h = o.h || 1.2;
+    canopy(cx, x, h * 0.48, w / 2 * 0.95, h * 0.5, Math.round(x * 53), LEAVES.arbuste, hx, true);
+  } else if (o.t === 'rocher' || o.t === 'tombe' || o.t === 'souche') {
+    const pts = it.parts[0].pts, base = o.t === 'rocher' ? '#5f5a57' : o.t === 'tombe' ? '#68657a' : '#4a3426';
+    const litC = o.t === 'rocher' ? '#89837d' : o.t === 'tombe' ? '#918da2' : '#6b4d37';
+    polyW(pts, cx); ctx.fillStyle = base; ctx.fill();
+    ctx.save(); polyW(pts, cx); ctx.clip();
+    const mx = X(x, cx), sd = hx < 0 ? -1 : 1, g = ctx.createLinearGradient(mx + sd * S, 0, mx - sd * S, 0);
+    g.addColorStop(0, mix(base, litC, 0.35 + 0.65 * Math.abs(hx))); g.addColorStop(0.6, alpha(litC, 0)); ctx.fillStyle = g; ctx.fillRect(mx - 4 * S, Y(5), 8 * S, 6 * S);
+    ctx.fillStyle = 'rgba(20,15,25,.25)'; ctx.fillRect(mx - 4 * S, Y(0.25), 8 * S, 0.25 * S);
+    if (o.t === 'rocher') {  // fissures
+      ctx.strokeStyle = 'rgba(30,25,25,.35)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(mx - 0.2 * S, Y((o.h || 1.5) * 0.9)); ctx.lineTo(mx, Y((o.h || 1.5) * 0.5)); ctx.lineTo(mx + 0.25 * S, Y(0.3)); ctx.stroke();
+    }
+    if (o.t !== 'souche') { ctx.fillStyle = 'rgba(80,100,50,.5)'; ctx.beginPath(); ctx.ellipse(mx - hx * 0.2 * S, Y((o.h || 1.4) * 0.95), S * 0.35, S * 0.1, 0, 0, 2 * PI); ctx.fill(); }
+    ctx.restore();
+    if (o.t === 'tombe') {
+      const hm = o.h || 1.4; ctx.fillStyle = 'rgba(30,25,40,.5)';
+      ctx.fillRect(X(x, cx) - S * 0.035, Y(hm * 0.78), S * 0.07, S * hm * 0.36); ctx.fillRect(X(x, cx) - S * 0.13, Y(hm * 0.68), S * 0.26, S * 0.07);
+    }
+    if (o.t === 'souche') {
+      const w = (o.w || 1.1) / 2, hm = o.h || 0.9;
+      ctx.fillStyle = '#b48e62'; ctx.beginPath(); ctx.ellipse(X(x, cx), Y(hm), w * S, S * 0.1, 0, 0, 2 * PI); ctx.fill();
+      ctx.strokeStyle = 'rgba(90,60,35,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(X(x, cx), Y(hm), w * S * 0.55, S * 0.055, 0, 0, 2 * PI); ctx.stroke();
+    }
+  }
+  // touffes d'herbe au pied
+  ctx.strokeStyle = 'rgba(60,80,40,.8)'; ctx.lineWidth = Math.max(1, S * 0.025);
+  for (let i = 0; i < 6; i++) { const px = X(x + (i - 2.5) * 0.15, cx), len = S * (0.12 + 0.1 * hash(x + i)); ctx.beginPath(); ctx.moveTo(px, groundY + 2); ctx.lineTo(px + (i - 2.5) * 1.5, groundY + 2 - len); ctx.stroke(); }
+}
+
+// Premier plan : la ramure des grands arbres est dessinée devant Igor, qui passe dessous.
+function drawItemFront(it, cx, hx) {
+  const o = it.o, x = o.x;
+  if (o.t === 'chene') {
+    const h = o.h || 5, w = o.w || 1;
+    canopy(cx, x, 0.68 * h, 0.34 * h * w, 0.3 * h, Math.round(x * 131), LEAVES.chene, hx);
+  } else if (o.t === 'bouleau') {
+    const h = o.h || 6;
+    canopy(cx, x, 0.84 * h, 0.16 * h, 0.14 * h, Math.round(x * 71), LEAVES.clair, hx);
+  }
+}
+
+function drawForeground(cx, P) {
+  const b = BAND(), y0 = groundY + b;
+  const g = ctx.createLinearGradient(0, y0, 0, H);
+  g.addColorStop(0, mix(P.meadow, '#1d2418', 0.45)); g.addColorStop(0.25, '#232319'); g.addColorStop(1, '#17131d');
+  ctx.fillStyle = g; ctx.fillRect(0, y0, W, H - y0);
+  ctx.strokeStyle = mix(P.meadow, '#1d2418', 0.3); ctx.lineWidth = Math.max(1.5, S * 0.035); ctx.lineCap = 'round';
+  const off = cx * 1.15;
+  for (let i = Math.floor(off * 6) - 2; i < (off + W / S) * 6 + 2; i++) {
+    const h = hash(i + 0.5), px = (i / 6 - off) * S, len = S * (0.18 + 0.3 * h);
+    ctx.beginPath(); ctx.moveTo(px, y0 + 3); ctx.quadraticCurveTo(px + len * 0.2, y0 - len * 0.5, px + len * (0.35 * h - 0.1), y0 - len); ctx.stroke();
+  }
+}
+
+function drawCoffin(cx, open) {
+  const x = X(lv.L, cx) + 0.15 * S, y = FEET(), w = 0.8 * S, h = 1.55 * S;
+  const shape = () => { ctx.beginPath(); ctx.moveTo(-w * 0.32, 0); ctx.lineTo(w * 0.32, 0); ctx.lineTo(w * 0.5, -h * 0.72); ctx.lineTo(w * 0.3, -h); ctx.lineTo(-w * 0.3, -h); ctx.lineTo(-w * 0.5, -h * 0.72); ctx.closePath(); };
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(20,15,25,.35)'; ctx.beginPath(); ctx.ellipse(0, 0, w * 0.6, S * 0.08, 0, 0, 2 * PI); ctx.fill();
+  const wood = ctx.createLinearGradient(-w / 2, 0, w / 2, 0); wood.addColorStop(0, '#2a1814'); wood.addColorStop(0.5, '#4a2c22'); wood.addColorStop(1, '#22130f');
+  ctx.fillStyle = wood; shape(); ctx.fill();
+  if (open) {
+    ctx.save(); ctx.scale(0.78, 0.9); ctx.translate(0, -h * 0.05);
+    const satin = ctx.createLinearGradient(-w / 2, 0, w / 2, 0); satin.addColorStop(0, '#5a0f1d'); satin.addColorStop(0.5, '#a3243a'); satin.addColorStop(1, '#4a0c18');
+    ctx.fillStyle = satin; shape(); ctx.fill(); ctx.restore();
+  } else {
+    ctx.fillStyle = '#c9a25a'; ctx.fillRect(-S * 0.035, -h * 0.78, S * 0.07, h * 0.42); ctx.fillRect(-S * 0.14, -h * 0.68, S * 0.28, S * 0.07);
+  }
+  ctx.restore();
+}
+
+// Drapeau planté au bord du chemin, à la distance du record (mode infini).
+function drawRecordFlag(cx) {
+  if (!lv.endless || !(best.m > 0)) return;
+  const x = X(best.m, cx);
+  if (x < -2 * S || x > W + 2 * S) return;
+  const base = groundY + 0.15 * S, top = base - 2.3 * S, wave = Math.sin(clock * 4) * 0.06 * S;
+  ctx.strokeStyle = '#2a2230'; ctx.lineWidth = Math.max(2, S * 0.05);
+  ctx.beginPath(); ctx.moveTo(x, base); ctx.lineTo(x, top); ctx.stroke();
+  ctx.fillStyle = recordPasse ? '#8a8494' : '#ffc94a';
+  ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x + 1.1 * S, top + 0.22 * S + wave); ctx.lineTo(x + 1.05 * S, top + 0.62 * S + wave); ctx.lineTo(x, top + 0.5 * S); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2b2142'; ctx.font = `600 ${Math.round(S * 0.2)}px Fredoka, sans-serif`; ctx.textAlign = 'left';
+  ctx.fillText('Record', x + 0.1 * S, top + 0.4 * S + wave * 0.5);
+  ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = `600 ${Math.round(S * 0.18)}px Fredoka, sans-serif`;
+  ctx.fillText(`${Math.floor(best.m)} m`, x + 0.1 * S, top + 0.85 * S);
+}
+
+// Bulles de vie (mode infini) : flottent à hauteur de poitrine, Igor les attrape en passant.
+function drawBubbles(cx) {
+  if (!lv.endless) return;
+  for (const b of lv.bubbles) {
+    if (b.taken) continue;
+    const x = X(b.x, cx), y = FEET() - 1.0 * S + Math.sin(clock * 3 + b.x) * 0.08 * S, r = 0.24 * S;
+    if (x < -r * 3 || x > W + r * 3) continue;
+    const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2.4);
+    glow.addColorStop(0, 'rgba(255,80,110,.35)'); glow.addColorStop(1, 'rgba(255,80,110,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 2 * PI); ctx.fill();
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(0.5, 'rgba(255,170,190,.22)'); g.addColorStop(1, 'rgba(220,40,80,.55)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#c4183a';  // goutte au centre
+    ctx.beginPath(); ctx.moveTo(x, y - r * 0.5); ctx.quadraticCurveTo(x + r * 0.4, y + r * 0.05, x, y + r * 0.4); ctx.quadraticCurveTo(x - r * 0.4, y + r * 0.05, x, y - r * 0.5); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * PI); ctx.stroke();
+  }
+}
+
+// ---- Igor
+const igc = document.createElement('canvas'), igx = igc.getContext('2d');
+function drawIgor(cx, t) {
+  const walking = mode === 'jeu';
+  const e = mode === 'jeu' ? exposure(lv, a, vx) : 0;
+  const x = X(vx, cx), y = FEET(), s = S;
+  if (mode === 'arrivee' && phaseT > 0.5) return;
+  if (mode === 'cendres' || mode === 'defaite') {
+    const k = Math.min(1, phaseT / 0.6);
+    ctx.fillStyle = '#6f6a72'; ctx.beginPath(); ctx.ellipse(x, y, 0.42 * s, 0.2 * s * k + 0.02 * s, 0, PI, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#4f4a55'; ctx.beginPath(); ctx.ellipse(x - 0.1 * s, y - 0.05 * s * k, 0.15 * s, 0.07 * s * k + 0.01 * s, 0, PI, 2 * PI); ctx.fill();
+    ctx.fillStyle = '#7a1426'; ctx.beginPath(); ctx.ellipse(x + 0.2 * s, y - 0.03 * s, 0.12 * s, 0.03 * s, 0.2, 0, 2 * PI); ctx.fill();
+    if (k >= 1) { ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(s * 0.3)}px Fredoka, sans-serif`; ctx.textAlign = 'center'; ctx.fillText('aïe', x + 0.3 * s, y - 0.5 * s); }
+    else { ctx.globalAlpha = 1 - k; blitIgor(x, y, s, t, 1, false); ctx.globalAlpha = 1; }
+    return;
+  }
+  ctx.fillStyle = 'rgba(20,15,30,.3)'; ctx.beginPath(); ctx.ellipse(x, y, 0.32 * s, 0.06 * s, 0, 0, 2 * PI); ctx.fill();
+  blitIgor(x, y, s, t, e, walking);
+  if (mode === 'jeu' || mode === 'pret') {
+    const bw = 0.8 * s, bx = x - bw / 2, by = y - 1.8 * s, hgt = Math.max(4, s * 0.1);
+    ctx.fillStyle = 'rgba(15,10,25,.55)'; ctx.beginPath(); ctx.roundRect(bx - 2, by - 2, bw + 4, hgt + 4, hgt); ctx.fill();
+    ctx.fillStyle = popT > 0 ? mix('#b9a3f5', '#ff6b8a', popT) : health > 50 ? '#b9a3f5' : health > 25 ? '#f0a43a' : '#e0455a';
+    ctx.beginPath(); ctx.roundRect(bx, by, Math.max(hgt, bw * health / 100), hgt, hgt / 2); ctx.fill();
+  }
+  if (mode === 'pret') {
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = `600 ${Math.round(s * 0.3)}px Fredoka, sans-serif`; ctx.textAlign = 'left';
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 3); ctx.fillText('z z z', x + 0.3 * s, y - 2.0 * s); ctx.globalAlpha = 1;
+  }
+}
+
+// Igor est dessiné à part puis éclairé : bleuté à l'ombre, réchauffé au soleil.
+function blitIgor(x, y, s, t, burn, walking) {
+  const cw = Math.ceil(s * 2.4), ch = Math.ceil(s * 2.2);
+  if (igc.width !== cw * DPR || igc.height !== ch * DPR) { igc.width = cw * DPR; igc.height = ch * DPR; }
+  igx.setTransform(DPR, 0, 0, DPR, 0, 0); igx.clearRect(0, 0, cw, ch);
+  igx.save(); igx.translate(cw / 2, ch - 2);
+  paintIgor(igx, s, t, burn, walking);
+  igx.restore();
+  igx.globalCompositeOperation = 'source-atop';
+  igx.fillStyle = burn > 0 ? `rgba(255,150,90,${0.06 + 0.16 * burn})` : 'rgba(25,22,60,.28)';
+  igx.fillRect(0, 0, cw, ch);
+  igx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(igc, x - cw / 2, y - ch + 2, cw, ch);
+}
+
+// Igor : silhouette ronde d'origine (grosse tête, cape en trapèze), avec plus de détails.
+function paintIgor(g, s, t, burn, walking) {
+  const sp = lv.endless ? infWalk(vx) / WALK : 1, ph = t * 9 * Math.sqrt(sp);
+  const bob = walking ? -Math.abs(Math.sin(ph)) * 0.05 * s : 0, step = walking ? Math.sin(ph) * 0.1 * s : 0;
+  const wave = walking ? Math.sin(ph * 0.5) * 0.04 : Math.sin(t * 1.5) * 0.015;
+  g.translate(0, bob);
+  const poly = (pts, col) => { g.fillStyle = col; g.beginPath(); pts.forEach(([px, py], i) => (i ? g.lineTo(px * s, py * s) : g.moveTo(px * s, py * s))); g.closePath(); g.fill(); };
+  // jambes et chaussures
+  g.fillStyle = '#16111f';
+  g.fillRect(-0.13 * s + step, -0.3 * s, 0.1 * s, 0.28 * s);
+  g.fillRect(0.03 * s - step, -0.3 * s, 0.1 * s, 0.28 * s);
+  g.fillStyle = '#07060a';
+  g.beginPath(); g.ellipse(-0.06 * s + step, -0.02 * s, 0.09 * s, 0.035 * s, 0, 0, 2 * PI); g.fill();
+  g.beginPath(); g.ellipse(0.1 * s - step, -0.02 * s, 0.09 * s, 0.035 * s, 0, 0, 2 * PI); g.fill();
+  // cape : doublure rouge qui flotte derrière
+  poly([[-0.2, -0.98], [-0.42 - wave - step / s * 0.3, -0.2], [-0.12, -0.24]], '#7d1528');
+  const capeG = g.createLinearGradient(-0.35 * s, 0, 0.3 * s, 0);
+  capeG.addColorStop(0, '#1a1426'); capeG.addColorStop(0.6, '#2d2245'); capeG.addColorStop(1, '#1d1630');
+  poly([[-0.38 - wave - step / s * 0.4, -0.2], [0.3, -0.22], [0.18, -0.98], [-0.2, -0.98]], capeG);
+  // pli de la cape
+  g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = Math.max(1, 0.02 * s);
+  g.beginPath(); g.moveTo(-0.05 * s, -0.9 * s); g.lineTo(-0.12 * s, -0.25 * s); g.moveTo(0.1 * s, -0.9 * s); g.lineTo(0.14 * s, -0.25 * s); g.stroke();
+  // jabot blanc et broche
+  poly([[0.0, -0.96], [0.12, -0.96], [0.09, -0.72], [0.03, -0.72]], '#ece6f0');
+  poly([[0.03, -0.92], [0.13, -0.86], [0.05, -0.8], [0.12, -0.76], [0.04, -0.72]], '#ffffff');
+  g.fillStyle = '#d4a63a'; g.beginPath(); g.arc(0.06 * s, -0.94 * s, 0.035 * s, 0, 2 * PI); g.fill();
+  g.fillStyle = '#b3122e'; g.beginPath(); g.arc(0.06 * s, -0.94 * s, 0.02 * s, 0, 2 * PI); g.fill();
+  // main
+  g.fillStyle = '#e7e0ee'; g.beginPath(); g.arc((0.2 + (walking ? Math.sin(ph) * 0.04 : 0)) * s, -0.52 * s, 0.05 * s, 0, 2 * PI); g.fill();
+  // grand col : extérieur sombre, intérieur rouge
+  poly([[-0.22, -0.94], [-0.36, -1.26], [-0.06, -0.98]], '#1a1426');
+  poly([[-0.2, -0.95], [-0.31, -1.2], [-0.09, -0.99]], '#b3263a');
+  poly([[0.2, -0.94], [0.32, -1.22], [0.06, -0.98]], '#1a1426');
+  poly([[0.18, -0.95], [0.27, -1.16], [0.09, -0.99]], '#b3263a');
+  // tête
+  const skin = burn > 0 ? mix('#ece4f4', '#ffb0a0', Math.min(1, burn)) : '#ece4f4';
+  const hg = g.createRadialGradient(0.06 * s, -1.18 * s, 0.03 * s, 0.02 * s, -1.12 * s, 0.24 * s);
+  hg.addColorStop(0, '#ffffff'); hg.addColorStop(0.5, skin); hg.addColorStop(1, mix(skin, '#9a8aa8', 0.45));
+  g.fillStyle = hg; g.beginPath(); g.arc(0.02 * s, -1.12 * s, 0.21 * s, 0, 2 * PI); g.fill();
+  poly([[-0.16, -1.15], [-0.26, -1.25], [-0.17, -1.07]], skin);  // oreille pointue
+  // cheveux plaqués en pointe
+  g.fillStyle = '#120e1a';
+  g.beginPath(); g.moveTo(-0.2 * s, -1.14 * s); g.quadraticCurveTo(-0.15 * s, -1.4 * s, 0.05 * s, -1.36 * s); g.quadraticCurveTo(0.25 * s, -1.32 * s, 0.23 * s, -1.12 * s);
+  g.lineTo(0.12 * s, -1.2 * s); g.lineTo(0.06 * s, -1.1 * s); g.lineTo(0, -1.22 * s); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.18)'; g.lineWidth = Math.max(1, 0.015 * s);
+  g.beginPath(); g.moveTo(-0.1 * s, -1.3 * s); g.quadraticCurveTo(0.02 * s, -1.36 * s, 0.14 * s, -1.3 * s); g.stroke();
+  // sourcils, yeux, bouche
+  g.strokeStyle = '#120e1a'; g.fillStyle = '#120e1a'; g.lineWidth = Math.max(1.5, s * 0.03); g.lineCap = 'round';
+  g.beginPath(); g.moveTo(0.04 * s, -1.19 * s); g.lineTo(0.1 * s, -1.17 * s); g.moveTo(0.14 * s, -1.17 * s); g.lineTo(0.2 * s, -1.19 * s); g.stroke();
+  if (mode === 'pret') {
+    g.beginPath(); g.moveTo(0.04 * s, -1.11 * s); g.lineTo(0.1 * s, -1.11 * s); g.moveTo(0.14 * s, -1.11 * s); g.lineTo(0.2 * s, -1.11 * s); g.stroke();
+  } else {
+    const ry = burn > 0 ? 0.045 : 0.032;
+    g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(0.07 * s, -1.11 * s, 0.035 * s, ry * s, 0, 0, 2 * PI); g.ellipse(0.17 * s, -1.11 * s, 0.035 * s, ry * s, 0, 0, 2 * PI); g.fill();
+    g.fillStyle = '#b3122e'; g.beginPath(); g.arc(0.08 * s, -1.11 * s, 0.018 * s, 0, 2 * PI); g.arc(0.18 * s, -1.11 * s, 0.018 * s, 0, 2 * PI); g.fill();
+  }
+  if (burn > 0) {
+    g.fillStyle = '#2a0d14'; g.beginPath(); g.ellipse(0.12 * s, -1.0 * s, 0.045 * s, 0.032 * s, 0, 0, 2 * PI); g.fill();
+  } else {
+    g.strokeStyle = '#4a2a38'; g.lineWidth = Math.max(1, s * 0.02);
+    g.beginPath(); g.moveTo(0.06 * s, -1.01 * s); g.quadraticCurveTo(0.12 * s, -0.99 * s, 0.17 * s, -1.02 * s); g.stroke();
+    g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(0.08 * s, -1.01 * s); g.lineTo(0.095 * s, -0.96 * s); g.lineTo(0.11 * s, -1.0 * s); g.fill();
+  }
+}
+
+function drawParticles(cx) {
+  for (const p of particles) {
+    ctx.fillStyle = p.or ? `rgba(255,214,110,${0.9 * p.life})` : p.rouge ? `rgba(255,90,120,${0.8 * p.life})` : `rgba(215,210,220,${0.45 * p.life})`;
+    ctx.beginPath(); ctx.arc(X(p.x, cx), FEET() - p.y * S, p.r * S, 0, 2 * PI); ctx.fill();
+  }
+}
+
+function render() {
+  const { elev } = light(a), elevT = Math.min(1, elev / (PI / 2)), cx = camX(), P = palette(elevT), hx = -Math.cos(a);  // côté éclairé : -1 soleil à gauche, 0 à midi, +1 à droite (en continu)
+  drawSky(P);
+  drawSun(P, elevT);
+  drawClouds(cx);
+  drawBackdrop(cx, P);
+  drawPath(cx, P);
+  drawPuddles(cx, P);
+  drawShadows(cx);
+  for (const it of lv.items) drawItemBack(it, cx, hx);
+  if (mode !== 'titre' && !lv.endless) drawCoffin(cx, !(mode === 'arrivee' && phaseT > 0.5) && mode !== 'victoire');
+  drawRecordFlag(cx);
+  drawBubbles(cx);
+  if (mode !== 'titre' && mode !== 'niveaux') drawIgor(cx, clock);
+  drawParticles(cx);
+  for (const it of lv.items) drawItemFront(it, cx, hx);
+  drawForeground(cx, P);
+  if (mode === 'arrivee' && phaseT > 0.5 && phaseT < 1.3) {
+    ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(S * 0.34)}px Fredoka, sans-serif`; ctx.textAlign = 'center';
+    ctx.fillText('merci !', X(lv.L, cx) + 0.15 * S, FEET() - 1.9 * S);
+  }
+}
+
+let last = 0;
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  update(dt); render();
+  requestAnimationFrame(frame);
+}
+
+// ---- contrôles : un tap (ou clic) à gauche / à droite de l'écran, un glissé, ou les flèches.
+function stepSun(d) {
+  const n = Math.max(0, Math.min(SUN_POS.length - 1, ti + d));
+  if (n === ti) return;
+  ti = n; sfx.pas(); buzz(8);
+}
+const DRAG_STEP = () => Math.max(40, W * 0.14);  // distance de glissé pour une position
+let dragX = null;
+cv.addEventListener('pointerdown', (ev) => {
+  initAudio();
+  if (mode === 'pret') { startWalking(); return; }
+  if (mode !== 'jeu') return;
+  stepSun(ev.clientX < W / 2 ? -1 : 1);  // réaction immédiate, sans attendre qu'on lève le doigt
+  dragX = ev.clientX; try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (dragX === null || mode !== 'jeu') return;
+  const dx = ev.clientX - dragX;
+  if (Math.abs(dx) >= DRAG_STEP()) { stepSun(dx > 0 ? 1 : -1); dragX += Math.sign(dx) * DRAG_STEP(); }
+});
+const endDrag = () => { dragX = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+window.addEventListener('keydown', (ev) => {
+  const k = ev.key.toLowerCase(), left = k === 'arrowleft' || k === 'q' || k === 'a', right = k === 'arrowright' || k === 'd';
+  if (!left && !right && k !== ' ') return;
+  if (mode === 'pret') { initAudio(); startWalking(); return; }
+  if (mode !== 'jeu' || ev.repeat) return;
+  ev.preventDefault();
+  if (left) stepSun(-1); else if (right) stepSun(1);
+});
+
+function pause() { if (mode === 'jeu' || mode === 'pret') { mode = 'pause'; setSizzle(0); screens('ecran-pause'); } }
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+$('b-jouer').onclick = () => { initAudio(); sfx.click(); openLevels(); };
+$('b-infini').onclick = () => { initAudio(); sfx.click(); startEndless(); };
+$('b-infini-encore').onclick = () => startEndless();
+$('b-infini-menu').onclick = () => { $('serie').hidden = true; mode = 'titre'; lv = buildLevel(LEVELS[0]); vx = 0; show('hud', false); screens('ecran-titre'); };
+recordLabel();
+$('b-retour-titre').onclick = () => { mode = 'titre'; screens('ecran-titre'); };
+$('b-pause').onclick = pause;
+$('b-recommencer').onclick = () => loadLevel(cur);
+$('b-reprendre').onclick = () => { screens(null); mode = vx > 0 ? 'jeu' : 'pret'; };
+$('b-recommencer-p').onclick = () => loadLevel(cur);
+$('b-niveaux-p').onclick = openLevels;
+$('b-niveaux-v').onclick = openLevels;
+$('b-niveaux-d').onclick = openLevels;
+$('b-rejouer').onclick = () => loadLevel(cur);
+$('b-reessayer').onclick = () => loadLevel(cur);
+$('b-suivant').onclick = () => (cur < LEVELS.length - 1 ? loadLevel(cur + 1) : openLevels());
+const sonLabel = () => { $('b-son').textContent = 'Son : ' + (soundOn ? 'oui' : 'non'); };
+$('b-son').onclick = () => { soundOn = !soundOn; try { localStorage.setItem('midi.son', soundOn ? '1' : '0'); } catch (e) {} sonLabel(); };
+sonLabel();
+
+window.addEventListener('resize', resize);
+function start() {
+  resize();
+  requestAnimationFrame(frame);
+}
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start); else start();
+</script>
+<!--WRAP-BODY-END-->
+</body>
+</html>
