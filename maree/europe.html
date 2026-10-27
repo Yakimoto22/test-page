@@ -234,16 +234,17 @@ function construireTrace() {
   // jusqu'à ce que deux bras du fleuve ne passent jamais à moins de 40 unités l'un de l'autre.
   let v = null;
   // on part du vrai tracé aux méandres accentués, puis on le redresse peu à peu : en ligne droite, il ne se recoupe jamais
+  // prolongements avant le départ et après l'arrivée, en points rapprochés comme le reste du tracé ;
+  // le contrôle des virages porte sur le tracé prolongé : les extrémités comptent aussi
+  const prolonger = (v) => { const d0 = v[Math.min(10, v.length - 1)].clone().sub(v[0]).normalize(), d1 = v[v.length - 1].clone().sub(v[Math.max(0, v.length - 11)]).normalize(), a0 = v[0].clone(), a1 = v[v.length - 1].clone(), w = v.slice();
+    for (let k = 1; k <= 6; k++) w.unshift(a0.clone().addScaledVector(d0, -10 * k)); for (let k = 1; k <= 16; k++) w.push(a1.clone().addScaledVector(d1, 10 * k)); return { w, a0 }; };
+  let pr = null;
   for (let essai = 0; essai <= 10; essai++) {
     ACCENT = essai < 3 ? 2.6 - essai * 0.5 : 1.2;
-    v = traceBrut(essai < 3 ? 0 : Math.min(1, (essai - 2) * 0.14), 6);
-    if (essai === 10 || (goulet(v) >= 40 && rayonMin(v) >= 32)) break;
+    v = traceBrut(essai < 3 ? 0 : Math.min(1, (essai - 2) * 0.14), 6); pr = prolonger(v);
+    if (essai === 10 || (goulet(pr.w) >= 40 && rayonMin(pr.w) >= 34)) break;
   }
-  const d0 = v[1].clone().sub(v[0]).normalize(), d1 = v[v.length - 1].clone().sub(v[v.length - 2]).normalize();
-  // prolongements avant le départ et après l'arrivée, en points rapprochés comme le reste du tracé
-  const a0 = v[0].clone(), a1 = v[v.length - 1].clone();
-  for (let k = 1; k <= 6; k++) v.unshift(a0.clone().addScaledVector(d0, -10 * k));
-  for (let k = 1; k <= 16; k++) v.push(a1.clone().addScaledVector(d1, 10 * k));
+  v = pr.w; const a0 = pr.a0;
   const courbe = new THREE.CatmullRomCurve3(v, false, 'centripetal');
   courbe.arcLengthDivisions = v.length * 12;   // abscisse curviligne fine : pas régulier de PAS partout
   const pts = courbe.getSpacedPoints(Math.round(courbe.getLength() / PAS));
@@ -719,7 +720,7 @@ function construireDecor() {
   const tirer = () => { let u = r(); for (const k in THEME.loin) { u -= THEME.loin[k]; if (u <= 0) return k; } return Object.keys(THEME.loin)[0]; };
   const T = { roseau: inst(roseau, mHerbe, 4000), caillou: inst(caillou, mat(0x9b9282), 700) };
   // aucun arbre sur un bâtiment ou dans un pont (emprises réelles au sol)
-  const libreMonde = (p) => !BATI.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + 1.4) && !QUAIS.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 5.2) && !PONTS_F.some((f) => Math.abs((p.x - f.p.x) * f.t.x + (p.z - f.p.z) * f.t.z) < 5.5 && Math.abs((p.x - f.p.x) * f.d.x + (p.z - f.p.z) * f.d.z) < 18.5);
+  const libreMonde = (p) => !BATI.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + 2) && !QUAIS.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 5.2) && !PONTS_F.some((f) => Math.abs((p.x - f.p.x) * f.t.x + (p.z - f.p.z) * f.t.z) < 5.5 && Math.abs((p.x - f.p.x) * f.d.x + (p.z - f.p.z) * f.d.z) < 18.5);
   const pose = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; if (m !== T.roseau && m !== T.caillou && !libreMonde(pos)) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
   const libre = (s, lat) => !(decor.zones || []).some((z) => Math.abs(z.s - s) < z.r && Math.sign(z.lat) === Math.sign(lat) && Math.abs(lat - z.lat) < 22);
   const surSol = (s, lat, enfonce = 0.05) => cadre(s).p.addScaledVector(cadre(s).d, latEff(Math.round((s + S0) / PAS), lat)).setY(hauteurSol(s, lat) - enfonce);
@@ -798,6 +799,7 @@ function terrainLibre(s, lat, r) {
   const f = cadre(s), p = f.p.clone().addScaledVector(f.d, latEff(Math.round((s + S0) / PAS), lat));
   if (distFleuve(p.x, p.z) < BORD + 4 + r) return null;
   if (BATI.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + r + 0.6)) return null;
+  if (PONTS_F.some((f) => Math.abs((p.x - f.p.x) * f.t.x + (p.z - f.p.z) * f.t.z) < 2.4 + r && Math.abs((p.x - f.p.x) * f.d.x + (p.z - f.p.z) * f.d.z) < 15.5 + r)) return null;   // ni sur un pont ni contre ses culées
   return p;
 }
 // assise d'un bâtiment sur le terrain : le socle (3 de haut) descend sous le point le plus bas,
@@ -826,7 +828,7 @@ function village(s, cote, eglise) {
     if (r() < 0.22) continue;
     const l = 3 + r() * 2, pr = 2.4 + r() * 1.1, h = 2.1 + r() * 1.4, rr = Math.hypot(l, pr) / 2 + 0.3;
     const ss = s + ds + (r() - 0.5) * 1, lat = cote * (lat0 + (r() - 0.5) * 0.8), p = terrainLibre(ss, lat, rr);
-    const y = p && sol(ss, lat, rr); if (!p || y == null) continue;
+    const y = p && sol(ss, lat, rr * 1.1); if (!p || y == null) continue;
     const t = new THREE.Group(); maison(t, 0, 0, l, pr, h); const m = t.children[0]; m.position.set(0, 0, 0); socle(m, l, pr, M.tuffeau);
     g.add(placer(m, ss, lat, y, cote > 0 ? -PI / 2 : PI / 2)); BATI.push({ x: p.x, z: p.z, r: rr });
   }
@@ -1152,9 +1154,9 @@ function chargerNiveau(ip, w, n) {
   // bateaux amarrés le long des quais, parallèles à la rive, hors des couloirs ; ils montent et descendent avec l'eau
   decor.amarres = [];
   const eauLibre = (ss) => !niv.evs.some((e) => Math.abs(ss - e.s) < longueur(e) + 9);
-  niv.villes.slice(0, 3).forEach((v, k) => { for (let j = 0; j < 2; j++) { const sa = v.s + 18 + j * 11; if (!eauLibre(sa)) continue; const t = amarre(), bb = new THREE.Box3().setFromObject(t), k0 = Math.min(1, 0.9 / Math.max(bb.max.x, -bb.min.x)), demi = Math.max(bb.max.x, -bb.min.x) * k0; t.scale.setScalar(k0);
-    placer(t, sa, (k % 2 ? -1 : 1) * (7.6 + demi), EAU[1] - 0.35, 0); t.updateMatrixWorld(true);
-    if ([[bb.min.x, bb.min.z], [bb.max.x, bb.min.z], [bb.min.x, bb.max.z], [bb.max.x, bb.max.z]].some(([x, z]) => { const c = new THREE.Vector3(x, 0, z).applyMatrix4(t.matrixWorld); return distFleuve(c.x, c.z) < 7.5; })) continue;   // jamais dans un couloir, même au creux d'un virage
+  niv.villes.slice(0, 3).forEach((v, k) => { for (let j = 0; j < 2; j++) { const sa = v.s + 18 + j * 11; if (!eauLibre(sa)) continue; const t = amarre(), bb = new THREE.Box3().setFromObject(t), k0 = Math.min(1, 0.8 / Math.max(bb.max.x, -bb.min.x)), demi = Math.max(bb.max.x, -bb.min.x) * k0; t.scale.setScalar(k0);
+    placer(t, sa, (k % 2 ? -1 : 1) * (7.55 + demi), EAU[1] - 0.35, 0); t.updateMatrixWorld(true);
+    if ([[bb.min.x, bb.min.z], [bb.max.x, bb.min.z], [bb.min.x, bb.max.z], [bb.max.x, bb.max.z]].some(([x, z]) => { const c = new THREE.Vector3(x, 0, z).applyMatrix4(t.matrixWorld); const d = distFleuve(c.x, c.z); return d < 7.4 || d > 9.35; })) continue;   // ni dans un couloir ni sur la grève   // jamais dans un couloir, même au creux d'un virage
     scene.add(t); decor.amarres.push({ o: t, ph: v.s + j * 2 }); } });
   for (const e of niv.evs) obstacle(e);
   construireDecor();   // la végétation en dernier : elle contourne bâtiments, ponts et quais
