@@ -274,6 +274,12 @@ function latEff(i, lat) {   // au-delà de la berge, l'intérieur d'un méandre 
   if (!(R < 5e4) && !(Gt < 5e4)) return lat;
   const r = Math.max(1.5, Math.min(R < 5e4 ? 0.85 * (R - 14) : 1e5, Gt < 5e4 ? Gt / 2 - 15 : 1e5)); return Math.sign(lat) * (14 + r * (1 - Math.exp(-(a - 14) / r)));
 }
+function latBrut(i, w) {   // inverse de latEff : la colonne du terrain qui se trouve à la distance w du fleuve
+  const a = Math.abs(w); if (a <= 14) return w;
+  let lo = 14, hi = 180; if (Math.abs(latEff(i, Math.sign(w) * hi)) <= a) return Math.sign(w) * hi;
+  for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; if (Math.abs(latEff(i, Math.sign(w) * m)) < a) lo = m; else hi = m; }
+  return Math.sign(w) * (lo + hi) / 2;
+}
 const S0 = 60;
 function cadre(s) {
   const f = clamp((s + S0) / PAS, 0, PTS.length - 1.001), i = Math.floor(f), t = f - i;
@@ -563,7 +569,6 @@ function construireScene() {
       }`,
   }));
   scene.add(eauMesh);
-  construireDecor();
 }
 // ---- végétation détaillée : vrais troncs et branches, feuillage en cartes de feuilles dessinées
 // (chaque carte porte des centaines de feuilles peintes, découpées par transparence), répété en instances.
@@ -709,7 +714,9 @@ function construireDecor() {
   for (const k of especes) A[k] = inst(E[k].geo, E[k].mat, k === THEME.rive ? 500 : k === THEME.ligne ? 700 + Math.round(900 * (THEME.loin[k] || 0)) : Math.round(1200 * THEME.loin[k]) + 60);
   const tirer = () => { let u = r(); for (const k in THEME.loin) { u -= THEME.loin[k]; if (u <= 0) return k; } return Object.keys(THEME.loin)[0]; };
   const T = { roseau: inst(roseau, mHerbe, 4000), caillou: inst(caillou, mat(0x9b9282), 700) };
-  const pose = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
+  // aucun arbre sur un bâtiment ou dans un pont (emprises réelles au sol)
+  const libreMonde = (p) => !BATI.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + 1.4) && !QUAIS.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 5.2) && !PONTS_F.some((f) => Math.abs((p.x - f.p.x) * f.t.x + (p.z - f.p.z) * f.t.z) < 5.5 && Math.abs((p.x - f.p.x) * f.d.x + (p.z - f.p.z) * f.d.z) < 18.5);
+  const pose = (m, pos, s3, rot, coul) => { if (m.count >= m.instanceMatrix.count) return; if (m !== T.roseau && m !== T.caillou && !libreMonde(pos)) return; q.setFromEuler(e.set(0, rot, 0)); m4.compose(pos, q, s3); m.setMatrixAt(m.count, m4); m.setColorAt(m.count, coul || c.setRGB(1, 1, 1)); m.count++; };
   const libre = (s, lat) => !(decor.zones || []).some((z) => Math.abs(z.s - s) < z.r && Math.sign(z.lat) === Math.sign(lat) && Math.abs(lat - z.lat) < 22);
   const surSol = (s, lat, enfonce = 0.05) => cadre(s).p.addScaledVector(cadre(s).d, latEff(Math.round((s + S0) / PAS), lat)).setY(hauteurSol(s, lat) - enfonce);
   const teinte = (v) => c.setRGB(1 + v, 1 + v * 0.8, 1 + v * 0.5);
@@ -728,7 +735,7 @@ function construireDecor() {
     if (r() < 0.35) continue;
     const lat0 = cote * (24 + Math.pow(r(), 1.3) * 70); if (!libre(s, lat0)) continue;
     const k = tirer(), n = 3 + Math.floor(r() * 7), ray = 3 + n * 0.7;
-    for (let j = 0; j < n; j++) { const a = r() * 2 * PI, d = Math.sqrt(r()) * ray, ss = s + Math.cos(a) * d, lat = lat0 + Math.sin(a) * d * cote; if (Math.abs(lat) < 20) continue;
+    for (let j = 0; j < n; j++) { const a = r() * 2 * PI, d = Math.sqrt(r()) * ray, ss = s + Math.cos(a) * d, lat = lat0 + Math.sin(a) * d * cote; if (Math.abs(lat) < 20 || !libre(ss, lat)) continue;
       const h = 0.85 + r() * 0.35; sc.set(h, h * (0.92 + r() * 0.16), h); pose(A[k], surSol(ss, lat, 0.15), sc, r() * 6, teinte((r() - 0.5) * 0.14)); }
   }
   scene.traverse((o) => { if (o.isInstancedMesh) { o.instanceMatrix.needsUpdate = true; o.instanceColor.needsUpdate = true; } });
@@ -782,28 +789,32 @@ function distFleuve(x, z) {
   return m;
 }
 // emprises au sol déjà bâties (cercles), pour que rien ne se chevauche
-const BATI = [];
+const BATI = [], QUAIS = []; let PONTS_S = [], PONTS_F = [];
 function terrainLibre(s, lat, r) {
   const f = cadre(s), p = f.p.clone().addScaledVector(f.d, latEff(Math.round((s + S0) / PAS), lat));
   if (distFleuve(p.x, p.z) < BORD + 4 + r) return null;
   if (BATI.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + r + 0.6)) return null;
   return p;
 }
-function sol(s, lat, r) {   // assise : point le plus bas sous l'emprise, pour qu'aucun bâtiment ne flotte
-  let y = 1e9; for (const ds of [-r, 0, r]) for (const dl of [-r, 0, r]) y = Math.min(y, hauteurSol(s + ds, lat + dl)); return y;
+// assise d'un bâtiment sur le terrain : le socle (3 de haut) descend sous le point le plus bas,
+// et la porte n'est jamais enterrée de plus de 0.6 côté amont ; terrain trop raide → null (on ne bâtit pas)
+function sol(s, lat, r) {   // échantillonné à la position réelle au sol (les prairies sont repliées dans les méandres)
+  const iS = (x) => clamp(Math.round((x + S0) / PAS), 0, PTS.length - 1), w0 = latEff(iS(s), lat);
+  let lo = 1e9, hi = -1e9; for (let a = -4; a <= 4; a++) for (let b = -4; b <= 4; b++) { const ds = a * r / 4, dl = b * r / 4; { const h = hauteurSol(s + ds, latBrut(iS(s + ds), w0 + dl)); lo = Math.min(lo, h); hi = Math.max(hi, h); } }
+  const y = Math.max(lo, hi - 0.4); return y - lo > 2.6 ? null : y;
 }
-function socle(g, l, p, mat) { const m = new THREE.Mesh(avecUV(new THREE.BoxGeometry(l, 2, p)), mat); m.position.y = -1; g.add(m); }
+function socle(g, l, p, mat) { const m = new THREE.Mesh(avecUV(new THREE.BoxGeometry(l, 3, p)), mat); m.position.y = -1.5; g.add(m); }
 function village(s, cote, eglise) {
   const g = new THREE.Group(), r = rng32(Math.round(s * 7) + (cote > 0 ? 1 : 0));
   // église au second rang, au milieu du village
   if (eglise) {
-    const lat = cote * 27, rr = 6.2, p = terrainLibre(s, lat, rr);
-    if (p) {
+    const lat = cote * 27, rr = 7.6, p = terrainLibre(s, lat, rr), y = p && sol(s, lat, 5.5);
+    if (p && y != null) {
       const e = new THREE.Group(), bois = THEME.eglise === 'bois';
       const nef = new THREE.Mesh(avecUV(new THREE.BoxGeometry(3.4, 4.6, 9)), bois ? M.blanc : M.tuffeau); nef.position.y = 2.3; e.add(nef);
       const tn = new THREE.Mesh(toit(3.6, 2.4, 9.4), bois ? mat(0x2b2b2b) : M.ardoise); tn.position.y = 5.8; e.add(tn);
       clocher(e, 0, 5.4, THEME.eglise); socle(e, 3.4, 11.2, M.pierre); e.children[e.children.length - 1].position.z = 1;
-      g.add(placer(e, s, lat, sol(s, lat, 5), 0)); BATI.push({ x: p.x, z: p.z, r: rr });
+      g.add(placer(e, s, lat, y, 0)); BATI.push({ x: p.x, z: p.z, r: rr });
     }
   }
   // maisons en rangs le long du quai, face au fleuve ; une case par maison, jamais deux au même endroit
@@ -811,13 +822,14 @@ function village(s, cote, eglise) {
     if (r() < 0.22) continue;
     const l = 3 + r() * 2, pr = 2.4 + r() * 1.1, h = 2.1 + r() * 1.4, rr = Math.hypot(l, pr) / 2 + 0.3;
     const ss = s + ds + (r() - 0.5) * 1, lat = cote * (lat0 + (r() - 0.5) * 0.8), p = terrainLibre(ss, lat, rr);
-    if (!p) continue;
+    const y = p && sol(ss, lat, rr); if (!p || y == null) continue;
     const t = new THREE.Group(); maison(t, 0, 0, l, pr, h); const m = t.children[0]; m.position.set(0, 0, 0); socle(m, l, pr, M.tuffeau);
-    g.add(placer(m, ss, lat, sol(ss, lat, rr * 0.8), cote > 0 ? -PI / 2 : PI / 2)); BATI.push({ x: p.x, z: p.z, r: rr });
+    g.add(placer(m, ss, lat, y, cote > 0 ? -PI / 2 : PI / 2)); BATI.push({ x: p.x, z: p.z, r: rr });
   }
   g.userData.village = true;
   // quai de pierre le long de la rive, par tronçons qui suivent la courbe
-  for (let ds = -18; ds <= 18; ds += 6) { const q = new THREE.Mesh(avecUV(new THREE.BoxGeometry(1.4, 2.6, 6.3)), M.pierre); g.add(placer(q, s + ds, cote * 11.9, 2.5, 0)); }
+  for (let ds = -18; ds <= 18; ds += 6) { if (PONTS_S.some((sp) => Math.abs(sp - (s + ds)) < 7.5)) continue;   // le quai s'arrête aux culées des ponts
+    const q = new THREE.Mesh(avecUV(new THREE.BoxGeometry(1.4, 2.6, 6.3)), M.pierre); q.userData.quai = true; g.add(placer(q, s + ds, cote * 11.9, 2.5, 0)); QUAIS.push(q.position.clone()); }
   return g;
 }
 // ---- clochers et monuments selon la région
@@ -1096,7 +1108,7 @@ const camPos = new THREE.Vector3(), camVise = new THREE.Vector3();
 function viderScene() {   // libère la scène du niveau précédent
   if (!scene) return;
   scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) { if (m.map) m.map.dispose(); m.dispose(); } });
-  ESSENCES = null; TEX = null; M = null; BATI.length = 0; banc.touffe = null; miniFond = null; camPos.set(0, 0, 0); ecume.length = 0; decor.moulins = [];
+  ESSENCES = null; TEX = null; M = null; BATI.length = 0; QUAIS.length = 0; banc.touffe = null; miniFond = null; camPos.set(0, 0, 0); ecume.length = 0; decor.moulins = [];
   for (const el of [...$('route').querySelectorAll('.ville')]) el.remove();
 }
 function chargerNiveau(ip, w, n) {
@@ -1104,16 +1116,32 @@ function chargerNiveau(ip, w, n) {
   viderScene(); appliquerTheme();
   construireTrace();
   niv = genNiveau(1000 + ip * 997 + w * 101 + n * 13);
-  decor.zones = [...niv.villes.map((v, i) => ({ s: v.s + (i === 0 ? -10 : 12), lat: i % 2 ? -22 : 22, r: 24 })), ...niv.villes.filter((v, i) => i % 2 === 0 && i > 0).map((v) => ({ s: v.s - 8, lat: -22, r: 24 })), { s: LONGUEUR - 26, lat: 36, r: 28 }, { s: LONGUEUR * 0.45, lat: -40, r: 24 }];
+  decor.zones = [...niv.villes.map((v, i) => ({ s: v.s + (i === 0 ? -10 : 12), lat: i % 2 ? -22 : 22, r: 24 })), ...niv.villes.filter((v, i) => i % 2 === 0 && i > 0).map((v) => ({ s: v.s - 8, lat: -22, r: 24 })), 
+    ...niv.evs.filter((e) => e.parts.some((p) => p.type === 'pont')).flatMap((e) => [13, -13].map((lat) => ({ s: e.s, lat, r: 5.5 })))];   // pas d'arbre dans les culées des ponts
   construireScene(); mats();
-  niv.villes.forEach((v, i) => { scene.add(village(v.s + (i === 0 ? -10 : 12), i % 2 ? -1 : 1, true)); if (i % 2 === 0 && i > 0) scene.add(village(v.s - 8, -1, false)); });
+  PONTS_S = niv.evs.filter((e) => e.parts.some((p) => p.type === 'pont')).map((e) => e.s);
+  PONTS_F = PONTS_S.map((sp) => cadre(sp));
   decor.moulins = [];
   for (const [ss, lat0, rot] of [[LONGUEUR - 26, 36, 0], [LONGUEUR * 0.45, -40, PI]]) {   // monument de la région à l'arrivée et à mi-parcours, sur un terrain sûr
-    const lat = [lat0, lat0 * 1.3, lat0 * 1.7].find((l) => terrainLibre(ss, l, 15)); if (lat === undefined) continue;
-    const p = terrainLibre(ss, lat, 15); BATI.push({ x: p.x, z: p.z, r: 15 });
-    const mo = monument(); if (mo.ailes) decor.moulins.push(mo.ailes); scene.add(placer(mo, ss, lat, sol(ss, lat, 10), rot)); }   // monument de la région à l'arrivée et à mi-parcours
-  niv.villes.slice(0, 3).forEach((v, k) => { for (let j = 0; j < 2; j++) { const t = amarre(); scene.add(placer(t, v.s + 18 + j * 9, (k % 2 ? -1 : 1) * 10.4, -0.2, PI / 2 + 0.1)); } });   // bateaux amarrés aux quais
+    const mo = monument(); mo.userData.monument = true;
+    const bb = new THREE.Box3(); mo.updateMatrixWorld(true); mo.traverse((o) => { if (!o.isMesh) return; let a = o; while (a && a !== mo.ailes) a = a.parent; if (!a) bb.expandByObject(o); });
+    const hx = Math.max(bb.max.x, -bb.min.x), hz = Math.max(bb.max.z, -bb.min.z), rr = Math.hypot(hx, hz) + 0.5;
+    const lat = [1, 1.3, 1.7, 2.2].map((k) => lat0 * k).find((l) => terrainLibre(ss, l, rr)); if (lat === undefined) continue;
+    const p = terrainLibre(ss, lat, rr); BATI.push({ x: p.x, z: p.z, r: rr });
+    if (mo.ailes) decor.moulins.push(mo.ailes);
+    let y = 1e9;   // assise : le point le plus bas sous toute l'emprise
+    const iS = (x) => clamp(Math.round((x + S0) / PAS), 0, PTS.length - 1), w0 = latEff(iS(ss), lat);
+    for (let a = -2; a <= 2; a++) for (let c = -2; c <= 2; c++) y = Math.min(y, hauteurSol(ss + c * hz / 2, latBrut(iS(ss + c * hz / 2), w0 + a * hx / 2)));
+    const base = new THREE.Mesh(avecUV(new THREE.BoxGeometry(bb.max.x - bb.min.x, 3, bb.max.z - bb.min.z)), M.pierre); base.position.set((bb.min.x + bb.max.x) / 2, -1.5, (bb.min.z + bb.max.z) / 2); mo.add(base);   // soubassement de pierre sur les terrains en pente
+    scene.add(placer(mo, ss, lat, y, rot)); }   // monument de la région à l'arrivée et à mi-parcours
+  niv.villes.forEach((v, i) => { scene.add(village(v.s + (i === 0 ? -10 : 12), i % 2 ? -1 : 1, true)); if (i % 2 === 0 && i > 0) scene.add(village(v.s - 8, -1, false)); });
+  // bateaux amarrés le long des quais, parallèles à la rive, hors des couloirs ; ils montent et descendent avec l'eau
+  decor.amarres = [];
+  const eauLibre = (ss) => !niv.evs.some((e) => Math.abs(ss - e.s) < longueur(e) + 9);
+  niv.villes.slice(0, 3).forEach((v, k) => { for (let j = 0; j < 2; j++) { const sa = v.s + 18 + j * 11; if (!eauLibre(sa)) continue; const t = amarre(), bb = new THREE.Box3().setFromObject(t), k0 = Math.min(1, 0.9 / Math.max(bb.max.x, -bb.min.x)), demi = Math.max(bb.max.x, -bb.min.x) * k0; t.scale.setScalar(k0);
+    scene.add(placer(t, sa, (k % 2 ? -1 : 1) * (7.6 + demi), EAU[1] - 0.35, 0)); decor.amarres.push({ o: t, ph: v.s + j * 2 }); } });
   for (const e of niv.evs) obstacle(e);
+  construireDecor();   // la végétation en dernier : elle contourne bâtiments, ponts et quais
   mPieces = piecesModele(niv.pieces.length);
   bateau = bateauModele();
   const fg = new THREE.CircleGeometry(0.25, 10); fg.rotateX(-PI / 2);
@@ -1288,6 +1316,7 @@ function rendre(dt, h) {
   niv.pieces.forEach((p, i) => { const g = cadre(p.s), k = p.pris || p.s < s - 4 || p.s > s + 150 ? 0.0001 : 1; m4.makeBasis(g.d, UP, g.t.clone().negate()); const rq = new THREE.Quaternion().setFromRotationMatrix(m4).multiply(new THREE.Quaternion().setFromAxisAngle(UP, h * 3 + i)); sc.setScalar(k); m4.compose(g.p.clone().addScaledVector(g.d, COULOIRS[p.c]).setY(EAU[p.n] + 0.85 + Math.sin(h * 3 + i) * 0.06), rq, sc); mPieces.setMatrixAt(i, m4); });
   mPieces.instanceMatrix.needsUpdate = true;
   // obstacles animés : tout ce qui flotte suit le niveau de l'eau
+  for (const a of decor.amarres || []) a.o.position.y = wy - 0.35 + Math.sin(h * 1.7 + a.ph) * 0.04;
   for (const e of niv.evs) {
     const d = e.s - s; if (d < -30 || d > 200) continue;
     for (const p of e.parts) {
